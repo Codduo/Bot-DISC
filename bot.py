@@ -4,10 +4,12 @@ from discord.ui import View, Modal, TextInput, Button, Select
 from discord import SelectOption
 from math import ceil
 import asyncio
+from datetime import datetime
 
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
+intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -17,11 +19,14 @@ ticket_response_channels = {}
 mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
+mensagens_teste = {}  # guild_id: message_id
+voice_loop_channels = {}  # guild_id: canal de voz para loop
 
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     enviar_testes.start()
+    loop_voice_channels.start()
 
 @bot.event
 async def on_member_join(member):
@@ -56,6 +61,63 @@ async def cargo(ctx):
     view = View()
     view.add_item(RoleSelect())
     await ctx.send("👥 Selecione o cargo automático:", view=view)
+
+# Comando: ativa loop de entrada/saída em call
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def call(ctx):
+    voice_channels = [c for c in ctx.guild.voice_channels]
+    options = [SelectOption(label=c.name, value=str(c.id)) for c in voice_channels[:25]]
+
+    class SelectCallChannel(Select):
+        def __init__(self):
+            super().__init__(placeholder="Escolha o canal de voz", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            channel_id = int(self.values[0])
+            voice_loop_channels[ctx.guild.id] = channel_id
+            await interaction.response.send_message(f"✅ Loop de entrada em call ativado em: <#{channel_id}>", ephemeral=True)
+
+    view = View()
+    view.add_item(SelectCallChannel())
+    await ctx.send("🔊 Selecione o canal de voz onde o bot deve ficar entrando e saindo:", view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def callparar(ctx):
+    if voice_loop_channels.pop(ctx.guild.id, None):
+        await ctx.send("🛑 O loop de entrada/saída em call foi parado.")
+    else:
+        await ctx.send("⚠️ Nenhum loop de call estava ativo.")
+
+@tasks.loop(seconds=30)
+async def loop_voice_channels():
+    for gid, cid in voice_loop_channels.items():
+        guild = bot.get_guild(gid)
+        channel = guild.get_channel(cid)
+        if channel:
+            try:
+                # Desconecta de qualquer canal anterior
+                if bot.voice_clients:
+                    for vc in bot.voice_clients:
+                        await vc.disconnect(force=True)
+
+                vc = await channel.connect()
+                await asyncio.sleep(2)
+                await vc.disconnect()
+            except Exception as e:
+                print(f"[Erro na conexão de voz]: {e}")
+
+                pass
+
+
+
+@bot.event
+async def on_ready():
+    print(f"✅ Bot conectado como {bot.user}")
+    enviar_testes.start()
+    loop_voice_channels.start()
+
 
 # Comando: define o cargo a ser mencionado nos tickets
 @bot.command()
@@ -240,6 +302,16 @@ class SugestaoView(View):
 async def testes(ctx):
     test_channels[ctx.guild.id] = ctx.channel.id
     await ctx.send("✅ Este canal foi configurado para testes automáticos do bot.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def clear(ctx):
+    await ctx.channel.purge()
+    confirm = await ctx.send("🧹 Chat limpo com sucesso!")
+    await asyncio.sleep(3)
+    await confirm.delete()
+
+
 
 from datetime import datetime
 
