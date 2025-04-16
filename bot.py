@@ -5,6 +5,9 @@ from discord import SelectOption
 from math import ceil
 import asyncio
 from datetime import datetime
+from keep_alive import keep_alive
+
+keep_alive()
 
 intents = discord.Intents.default()
 intents.members = True
