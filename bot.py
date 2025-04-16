@@ -241,17 +241,39 @@ async def testes(ctx):
     test_channels[ctx.guild.id] = ctx.channel.id
     await ctx.send("✅ Este canal foi configurado para testes automáticos do bot.")
 
-@tasks.loop(seconds=40)
+from datetime import datetime
+
+mensagens_teste = {}  # guild_id: message_id
+
+@tasks.loop(seconds=30)
 async def enviar_testes():
     for gid, cid in test_channels.items():
         canal = bot.get_channel(cid)
-        if canal:
-            embed = discord.Embed(
-                title="🔄 Bot ativo",
-                description=f"Ping atual: `{round(bot.latency * 1000)}ms`\n\nEsses avisos são necessários para manter o bot ativo na hospedagem.",
-                color=discord.Color.green()
-            )
-            await canal.send(embed=embed)
+        if not canal:
+            continue
+
+        embed = discord.Embed(
+            title="🔄 Bot ativo",
+            description=(
+                f"Ping atual: `{round(bot.latency * 1000)}ms`\n"
+                f"Última atualização: {datetime.now().strftime('%H:%M:%S')}\n\n"
+                "Esses avisos são necessários para manter o bot ativo na hospedagem."
+            ),
+            color=discord.Color.green()
+        )
+
+        mensagem_id = mensagens_teste.get(gid)
+
+        if mensagem_id:
+            try:
+                mensagem = await canal.fetch_message(mensagem_id)
+                await mensagem.edit(embed=embed)
+            except discord.NotFound:
+                nova = await canal.send(embed=embed)
+                mensagens_teste[gid] = nova.id
+        else:
+            nova = await canal.send(embed=embed)
+            mensagens_teste[gid] = nova.id
 
 
 # Comando de ajuda
