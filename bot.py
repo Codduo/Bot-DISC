@@ -19,7 +19,6 @@ ticket_response_channels = {}
 mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
-mensagens_teste = {}  # guild_id: message_id
 
 import json
 import os
@@ -84,8 +83,11 @@ async def cargo(ctx):
 
 @bot.event
 async def on_ready():
-    carregar_dados()
     print(f"✅ Bot conectado como {bot.user}")
+    bot.add_view(TicketButtonView())
+    bot.add_view(SugestaoView())
+
+
 
 # Comando: define o cargo a ser mencionado nos tickets
 @bot.command()
@@ -144,7 +146,7 @@ class TicketModal(Modal, title="Solicitar Cargo"):
 
 class TicketButton(Button):
     def __init__(self):
-        super().__init__(label="Solicitar cargo", emoji="📬", style=discord.ButtonStyle.secondary)
+        super().__init__(label="Solicitar cargo", emoji="📬", style=discord.ButtonStyle.secondary, custom_id="ticket_button")
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(TicketModal())
@@ -254,7 +256,7 @@ class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
 
 class SugestaoButton(Button):
     def __init__(self):
-        super().__init__(label="Enviar sugestão/reclamação", emoji="💡", style=discord.ButtonStyle.secondary)
+        super().__init__(label="Enviar sugestão/reclamação", emoji="💡", style=discord.ButtonStyle.secondary, custom_id="sugestao_button")
 
     async def callback(self, interaction):
         await interaction.response.send_modal(SugestaoModal())
@@ -333,6 +335,8 @@ async def on_guild_remove(guild):
     salvar_dados()
 
 
-# INICIO DO BOT
-TOKEN = "MTM2MTM4MzI4MDIwODc3NzQ2Nw.GAmU1k.76LesPY9Dw1u6Ab6PW9nMhlIsru0eHG1z0ZR3c"
+from dotenv import load_dotenv
+
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
