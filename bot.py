@@ -365,6 +365,7 @@ async def ajuda(ctx):
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
     embed.add_field(name="!testes", value="Define o canal que receberá mensagens automáticas a cada 40s.", inline=False)
     embed.add_field(name="!ajuda", value="Mostra esta mensagem com todos os comandos.", inline=False)
+    embed.add_field(name="!clear", value="Limpa todas as mensagens do chat! TOME CUIDADO, somente administradores podem usar esse comando (irreversível) ", inline=False)
     await ctx.send(embed=embed)
 
 # INICIO DO BOT
