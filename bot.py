@@ -5,9 +5,6 @@ from discord import SelectOption
 from math import ceil
 import asyncio
 from datetime import datetime
-from keep_alive import keep_alive
-
-keep_alive()
 
 intents = discord.Intents.default()
 intents.members = True
@@ -23,13 +20,33 @@ mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
 mensagens_teste = {}  # guild_id: message_id
-voice_loop_channels = {}  # guild_id: canal de voz para loop
 
-@bot.event
-async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
-    enviar_testes.start()
-    loop_voice_channels.start()
+import json
+import os
+
+def salvar_dados():
+    dados = {
+        "auto_roles": auto_roles,
+        "ticket_response_channels": ticket_response_channels,
+        "mention_roles": mention_roles,
+        "sugestao_channels": sugestao_channels,
+        "test_channels": test_channels,
+    }
+    with open("dados_servidor.json", "w") as f:
+        json.dump(dados, f)
+
+def carregar_dados():
+    if os.path.exists("dados_servidor.json"):
+        with open("dados_servidor.json", "r") as f:
+            conteudo = f.read().strip()
+            if conteudo:  # Só tenta carregar se não estiver vazio
+                dados = json.loads(conteudo)
+                auto_roles.update(dados.get("auto_roles", {}))
+                ticket_response_channels.update(dados.get("ticket_response_channels", {}))
+                mention_roles.update(dados.get("mention_roles", {}))
+                sugestao_channels.update(dados.get("sugestao_channels", {}))
+                test_channels.update(dados.get("test_channels", {}))
+
 
 @bot.event
 async def on_member_join(member):
@@ -65,62 +82,10 @@ async def cargo(ctx):
     view.add_item(RoleSelect())
     await ctx.send("👥 Selecione o cargo automático:", view=view)
 
-# Comando: ativa loop de entrada/saída em call
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def call(ctx):
-    voice_channels = [c for c in ctx.guild.voice_channels]
-    options = [SelectOption(label=c.name, value=str(c.id)) for c in voice_channels[:25]]
-
-    class SelectCallChannel(Select):
-        def __init__(self):
-            super().__init__(placeholder="Escolha o canal de voz", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            channel_id = int(self.values[0])
-            voice_loop_channels[ctx.guild.id] = channel_id
-            await interaction.response.send_message(f"✅ Loop de entrada em call ativado em: <#{channel_id}>", ephemeral=True)
-
-    view = View()
-    view.add_item(SelectCallChannel())
-    await ctx.send("🔊 Selecione o canal de voz onde o bot deve ficar entrando e saindo:", view=view)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def callparar(ctx):
-    if voice_loop_channels.pop(ctx.guild.id, None):
-        await ctx.send("🛑 O loop de entrada/saída em call foi parado.")
-    else:
-        await ctx.send("⚠️ Nenhum loop de call estava ativo.")
-
-@tasks.loop(seconds=30)
-async def loop_voice_channels():
-    for gid, cid in voice_loop_channels.items():
-        guild = bot.get_guild(gid)
-        channel = guild.get_channel(cid)
-        if channel:
-            try:
-                # Desconecta de qualquer canal anterior
-                if bot.voice_clients:
-                    for vc in bot.voice_clients:
-                        await vc.disconnect(force=True)
-
-                vc = await channel.connect()
-                await asyncio.sleep(2)
-                await vc.disconnect()
-            except Exception as e:
-                print(f"[Erro na conexão de voz]: {e}")
-
-                pass
-
-
-
 @bot.event
 async def on_ready():
+    carregar_dados()
     print(f"✅ Bot conectado como {bot.user}")
-    enviar_testes.start()
-    loop_voice_channels.start()
-
 
 # Comando: define o cargo a ser mencionado nos tickets
 @bot.command()
@@ -299,56 +264,36 @@ class SugestaoView(View):
         super().__init__(timeout=None)
         self.add_item(SugestaoButton())
 
-# Comando para definir canal de teste com pings automáticos
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def testes(ctx):
-    test_channels[ctx.guild.id] = ctx.channel.id
-    await ctx.send("✅ Este canal foi configurado para testes automáticos do bot.")
-
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def clear(ctx):
-    await ctx.channel.purge()
-    confirm = await ctx.send("🧹 Chat limpo com sucesso!")
-    await asyncio.sleep(3)
-    await confirm.delete()
+    class ConfirmarLimpeza(Button):
+        def __init__(self):
+            super().__init__(label="Sim, limpar!", style=discord.ButtonStyle.danger)
+
+        async def callback(self, interaction: discord.Interaction):
+            if interaction.user != ctx.author:
+                await interaction.response.send_message("❌ Apenas o autor do comando pode confirmar.", ephemeral=True)
+                return
+
+            for i in range(5, 0, -1):
+                await mensagem.edit(content=f"🧹 Limpando em {i} segundos...")
+                await asyncio.sleep(1)
+
+            await ctx.channel.purge()
+            aviso = await ctx.send("✅ Todas as mensagens foram limpas com sucesso!")
+            await asyncio.sleep(3)
+            await aviso.delete()
+
+    view = View()
+    view.add_item(ConfirmarLimpeza())
+    mensagem = await ctx.send("⚠️ Tem certeza que deseja limpar todas as mensagens deste canal?", view=view)
 
 
-
-from datetime import datetime
-
-mensagens_teste = {}  # guild_id: message_id
-
-@tasks.loop(seconds=30)
-async def enviar_testes():
-    for gid, cid in test_channels.items():
-        canal = bot.get_channel(cid)
-        if not canal:
-            continue
-
-        embed = discord.Embed(
-            title="🔄 Bot ativo",
-            description=(
-                f"Ping atual: `{round(bot.latency * 1000)}ms`\n"
-                f"Última atualização: {datetime.now().strftime('%H:%M:%S')}\n\n"
-                "Esses avisos são necessários para manter o bot ativo na hospedagem."
-            ),
-            color=discord.Color.green()
-        )
-
-        mensagem_id = mensagens_teste.get(gid)
-
-        if mensagem_id:
-            try:
-                mensagem = await canal.fetch_message(mensagem_id)
-                await mensagem.edit(embed=embed)
-            except discord.NotFound:
-                nova = await canal.send(embed=embed)
-                mensagens_teste[gid] = nova.id
-        else:
-            nova = await canal.send(embed=embed)
-            mensagens_teste[gid] = nova.id
+@bot.command()
+async def ping(ctx):
+    latency = round(bot.latency * 1000)
+    await ctx.send(f"🏓 PONG! O bot está funcional.\n📶 Ping atual: `{latency}ms`")
 
 
 # Comando de ajuda
@@ -363,10 +308,30 @@ async def ajuda(ctx):
     embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
     embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
-    embed.add_field(name="!testes", value="Define o canal que receberá mensagens automáticas a cada 40s.", inline=False)
     embed.add_field(name="!ajuda", value="Mostra esta mensagem com todos os comandos.", inline=False)
-    embed.add_field(name="!clear", value="Limpa todas as mensagens do chat! TOME CUIDADO, somente administradores podem usar esse comando (irreversível) ", inline=False)
+    embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
+
     await ctx.send(embed=embed)
+
+
+
+@bot.event
+async def on_command_completion(ctx):
+    salvar_dados()
+
+@bot.event
+async def on_guild_join(guild):
+    salvar_dados()
+
+@bot.event
+async def on_guild_remove(guild):
+    auto_roles.pop(str(guild.id), None)
+    ticket_response_channels.pop(str(guild.id), None)
+    mention_roles.pop(str(guild.id), None)
+    sugestao_channels.pop(str(guild.id), None)
+    test_channels.pop(str(guild.id), None)
+    salvar_dados()
+
 
 # INICIO DO BOT
 TOKEN = "MTM2MTM4MzI4MDIwODc3NzQ2Nw.GAmU1k.76LesPY9Dw1u6Ab6PW9nMhlIsru0eHG1z0ZR3c"
