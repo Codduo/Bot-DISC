@@ -592,6 +592,58 @@ async def mensagem(ctx):
         pass
 
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removecargomensagem(ctx):
+    guild_id = str(ctx.guild.id)
+    cargos_autorizados = cargo_autorizado_mensagem.get(guild_id, [])
+
+    if not cargos_autorizados:
+        await ctx.send("⚠️ Nenhum cargo autorizado para remover.", delete_after=5)
+        return
+
+    # Monta lista de opções dos cargos que estão atualmente autorizados
+    guild_roles = ctx.guild.roles
+    options = []
+    for role_id in cargos_autorizados:
+        role = discord.utils.get(guild_roles, id=role_id)
+        if role and role.name.strip() and role.name != "@everyone":
+            nome_limpo = role.name.strip()
+            options.append(
+                SelectOption(label=nome_limpo[:100], value=str(role.id))
+            )
+
+    options = options[:25]  # Limita a 25 para não dar erro
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado para remover.", delete_after=5)
+        return
+
+    class RemoverCargoMensagemSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o cargo para remover da permissão", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            role_id = int(self.values[0])
+            if role_id in cargo_autorizado_mensagem.get(guild_id, []):
+                cargo_autorizado_mensagem[guild_id].remove(role_id)
+                salvar_dados()
+                await interaction.response.send_message("✅ Cargo removido da lista de autorizados para `!mensagem`.", ephemeral=True)
+            else:
+                await interaction.response.send_message("⚠️ Cargo não encontrado na lista de autorizados.", ephemeral=True)
+
+    view = View(timeout=60)
+    view.add_item(RemoverCargoMensagemSelect())
+    await ctx.send("🔹 Selecione o cargo que você deseja remover da autorização do `!mensagem`:", view=view)
+
+    # Apaga a mensagem de comando enviada
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+
+
 @bot.command(name="ajuda")
 async def ajuda(ctx):
     embed = discord.Embed(
@@ -604,6 +656,7 @@ async def ajuda(ctx):
     embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
     embed.add_field(name="!setcargomensagem", value="Define quais cargos poderão utilizar o !mensagem", inline=False)
+    embed.add_field(name="!removecargomensagem", value="Remove um cargo que pode utilizar o !mensagem", inline=False)
     embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, imagem e menção.", inline=False)
     embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
     embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para o !mensagem.", inline=False)
