@@ -436,8 +436,67 @@ async def apagatipo(ctx):
 
 
 
+# Comando para definir quais cargos podem usar !mensagem
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setcargomensagem(ctx):
+    roles = [
+        r for r in ctx.guild.roles
+        if not r.is_bot_managed() and r.name.strip() and r.name != "@everyone"
+    ]
+
+    options = []
+    for r in roles:
+        nome_limpo = r.name.strip()
+        if nome_limpo:
+            options.append(
+                SelectOption(label=nome_limpo[:100], value=str(r.id))
+            )
+
+    options = options[:25]  # Limita a 25 opções para não dar erro
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo disponível para configurar.")
+        return
+
+    class CargoMensagemSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione os cargos que poderão usar !mensagem", options=options, min_values=1, max_values=len(options))
+
+        async def callback(self, interaction: discord.Interaction):
+            guild_id = str(ctx.guild.id)
+            cargo_autorizado_mensagem[guild_id] = [int(value) for value in self.values]
+            salvar_dados()
+            await interaction.response.send_message("✅ Cargos autorizados para usar `!mensagem` atualizados!", ephemeral=True)
+
+    view = View(timeout=60)
+    view.add_item(CargoMensagemSelect())
+    await ctx.send("🔹 Selecione os cargos que poderão usar `!mensagem`:", view=view)
+
+    # Apaga o comando depois que mandar o menu
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+# Atualiza o comando !mensagem com proteção de permissões
 @bot.command()
 async def mensagem(ctx):
+    guild_id = str(ctx.guild.id)
+    autorizado = False
+
+    if ctx.author.guild_permissions.administrator:
+        autorizado = True
+    else:
+        autorizados = cargo_autorizado_mensagem.get(guild_id, [])
+        user_roles = [role.id for role in ctx.author.roles]
+        if any(role in autorizados for role in user_roles):
+            autorizado = True
+
+    if not autorizado:
+        await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
+        return
+
     if not tipos_mensagem:
         await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado.", delete_after=5)
         return
@@ -453,7 +512,7 @@ async def mensagem(ctx):
         async def callback(self, interaction_tipo: discord.Interaction):
             tipo_escolhido = self.values[0]
 
-            # DELETA a mensagem do menu após seleção
+            # Deleta a mensagem do menu após a seleção
             try:
                 await interaction_tipo.message.delete()
             except:
@@ -477,7 +536,6 @@ async def mensagem(ctx):
                     if self.imagem.value:
                         embed.set_image(url=self.imagem.value)
 
-                    # Selecionar quem será mencionado
                     roles = [
                         r for r in interaction_modal.guild.roles
                         if not r.is_bot_managed() and r.name.strip() and r.name != "@everyone"
@@ -491,7 +549,6 @@ async def mensagem(ctx):
                                 SelectOption(label=nome_limpo[:100], value=str(r.id))
                             )
 
-                    # Garante que tenha no máximo 25 opções
                     options_cargos = options_cargos[:25]
                     options_cargos.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
@@ -527,6 +584,13 @@ async def mensagem(ctx):
     view_tipo = View(timeout=60)
     view_tipo.add_item(TipoSelect())
     await ctx.send("📚 Selecione o tipo da mensagem:", view=view_tipo)
+
+    # Apaga o comando depois que mandar o menu
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
 
 @bot.command(name="ajuda")
 async def ajuda(ctx):
