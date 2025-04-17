@@ -468,77 +468,78 @@ async def mensagem(ctx):
 
     cargo_autorizado = cargo_autorizado_mensagem.get(guild_id)
     
-    # Checagem se o autor tem permissão para usar
+    # Verificar permissão
     if not ctx.author.guild_permissions.administrator and (cargo_autorizado not in [r.id for r in ctx.author.roles]):
         await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
         return
 
-    # Carregar cargos para a seleção de menção
+    # Pegar todos os cargos para o usuário escolher quem vai mencionar
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
-    options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
+    options_mencao = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+    options_mencao.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
-    class EscolherMencao(Select):
+    class MencaoSelect(Select):
         def __init__(self):
-            super().__init__(placeholder="Selecione quem será mencionado", options=options)
+            super().__init__(placeholder="Escolha quem será mencionado", options=options_mencao)
 
-        async def callback(self, interaction: discord.Interaction):
+        async def callback(self, interaction_mencao: discord.Interaction):
             mencao_id = self.values[0]
 
-            # Agora depois de escolher a menção, vamos escolher o tipo de mensagem
-            tipos = [
+            # Agora escolher o tipo de mensagem
+            if not tipos_mensagem:
+                await interaction_mencao.response.send_message("⚠️ Nenhum tipo de mensagem cadastrado.", ephemeral=True)
+                return
+
+            options_tipos = [
                 SelectOption(label=tipo.replace('_', ' ').title(), value=tipo, emoji=info.get("emoji", "📝"))
                 for tipo, info in tipos_mensagem.items()
             ]
 
-            class EscolherTipoMensagem(Select):
+            class TipoSelect(Select):
                 def __init__(self):
-                    super().__init__(placeholder="Selecione o tipo da mensagem", options=tipos)
+                    super().__init__(placeholder="Escolha o tipo da mensagem", options=options_tipos)
 
                 async def callback(self, interaction_tipo: discord.Interaction):
-                    tipo = self.values[0]
+                    tipo_escolhido = self.values[0]
 
-                    class ModalMensagem(Modal, title="Digite a Mensagem"):
-                        conteudo = TextInput(label="Mensagem", placeholder="Digite a mensagem...", style=discord.TextStyle.paragraph)
-                        imagem_url = TextInput(label="URL da imagem (opcional)", placeholder="Cole o link da imagem...", required=False)
+                    class ModalMensagem(Modal, title="Criar Mensagem"):
+                        conteudo = TextInput(label="Mensagem", style=discord.TextStyle.paragraph, placeholder="Digite aqui...", required=True)
+                        imagem = TextInput(label="Imagem (opcional)", placeholder="URL da imagem...", required=False)
 
                         async def on_submit(self, interaction_modal: discord.Interaction):
-                            info = tipos_mensagem.get(tipo)
-                            cor = int(info.get("cor", "#3498db").replace("#", ""), 16)
+                            info_tipo = tipos_mensagem.get(tipo_escolhido)
+                            cor = int(info_tipo.get("cor", "#3498db").replace("#", ""), 16)
 
                             embed = discord.Embed(
-                                title=f"{info.get('emoji', '')} {tipo.replace('_', ' ').title()}",
+                                title=f"{info_tipo.get('emoji', '📢')} {tipo_escolhido.replace('_', ' ').title()}",
                                 description=self.conteudo.value,
-                                color=cor
+                                color=cor,
+                                timestamp=datetime.utcnow()
                             )
-                            embed.timestamp = datetime.utcnow()
 
-                            if self.imagem_url.value:
-                                embed.set_image(url=self.imagem_url.value)
+                            if self.imagem.value:
+                                embed.set_image(url=self.imagem.value)
 
                             if mencao_id != "none":
-                                mention = f"<@&{mencao_id}>"
-                                await interaction_modal.channel.send(content=mention, embed=embed)
+                                await interaction_modal.channel.send(content=f"<@&{mencao_id}>", embed=embed)
                             else:
                                 await interaction_modal.channel.send(embed=embed)
 
                             await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
-
                             try:
                                 await ctx.message.delete()
-                            except discord.errors.NotFound:
+                            except:
                                 pass
 
-                    await interaction_tipo.message.delete()
                     await interaction_tipo.response.send_modal(ModalMensagem())
 
-            view_tipo = View(timeout=60)
-            view_tipo.add_item(EscolherTipoMensagem())
-            await interaction.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
+            view_tipos = View(timeout=60)
+            view_tipos.add_item(TipoSelect())
+            await interaction_mencao.response.send_message("📨 Escolha o tipo de mensagem:", view=view_tipos)
 
-    view = View(timeout=60)
-    view.add_item(EscolherMencao())
-    await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view)
+    view_mencao = View(timeout=60)
+    view_mencao.add_item(MencaoSelect())
+    await ctx.send("🔔 Escolha quem será mencionado:", view=view_mencao)
 
 
 
