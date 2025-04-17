@@ -453,7 +453,7 @@ async def mensagem(ctx):
         async def callback(self, interaction_tipo: discord.Interaction):
             tipo_escolhido = self.values[0]
 
-            # DELETA A MENSAGEM DO MENU APÓS SELEÇÃO
+            # DELETA a mensagem do menu após seleção
             try:
                 await interaction_tipo.message.delete()
             except:
@@ -478,9 +478,27 @@ async def mensagem(ctx):
                         embed.set_image(url=self.imagem.value)
 
                     # Selecionar quem será mencionado
-                    roles = [r for r in interaction_modal.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-                    options_cargos = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+                    roles = [
+                        r for r in interaction_modal.guild.roles
+                        if not r.is_bot_managed() and r.name.strip() and r.name != "@everyone"
+                    ]
+
+                    options_cargos = []
+                    for r in roles:
+                        nome_limpo = r.name.strip()
+                        if nome_limpo:
+                            options_cargos.append(
+                                SelectOption(label=nome_limpo[:100], value=str(r.id))
+                            )
+
+                    # Garante que tenha no máximo 25 opções
+                    options_cargos = options_cargos[:25]
                     options_cargos.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
+
+                    if not options_cargos:
+                        await interaction_modal.channel.send(embed=embed)
+                        await interaction_modal.response.send_message("✅ Mensagem enviada sem menção!", ephemeral=True)
+                        return
 
                     class CargoSelect(Select):
                         def __init__(self):
@@ -488,6 +506,11 @@ async def mensagem(ctx):
 
                         async def callback(self, interaction_cargo: discord.Interaction):
                             mencao_id = self.values[0]
+                            try:
+                                await interaction_cargo.message.delete()
+                            except:
+                                pass
+
                             if mencao_id != "none":
                                 await interaction_cargo.channel.send(content=f"<@&{mencao_id}>", embed=embed)
                             else:
@@ -504,8 +527,6 @@ async def mensagem(ctx):
     view_tipo = View(timeout=60)
     view_tipo.add_item(TipoSelect())
     await ctx.send("📚 Selecione o tipo da mensagem:", view=view_tipo)
-
-
 
 @bot.command(name="ajuda")
 async def ajuda(ctx):
