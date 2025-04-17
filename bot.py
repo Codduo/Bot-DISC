@@ -53,7 +53,7 @@ def carregar_dados():
 
 @bot.event
 async def on_member_join(member):
-    role_id = auto_roles.get(member.guild.id)
+    role_id = auto_roles.get(str(member.guild.id))
     if role_id:
         role = member.guild.get_role(role_id)
         if role:
