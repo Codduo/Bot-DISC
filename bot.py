@@ -328,6 +328,76 @@ async def clear(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def tipos(ctx):
+    if not tipos_mensagem:
+        await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado.")
+        return
+
+    embed = discord.Embed(
+        title="📚 Tipos de Mensagem Cadastrados",
+        color=discord.Color.blue()
+    )
+
+    for tipo, info in tipos_mensagem.items():
+        embed.add_field(
+            name=f"{info.get('emoji', '📝')} {tipo.replace('_', ' ').title()}",
+            value=f"**Cor:** {info.get('cor', '#3498db')}",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def criartipo(ctx):
+    class CriarTipoModal(Modal, title="Criar Novo Tipo de Mensagem"):
+        nome = TextInput(label="Nome do Tipo", placeholder="Ex: Alerta Importante", style=discord.TextStyle.short)
+        emoji = TextInput(label="Emoji", placeholder="Ex: 🚨", style=discord.TextStyle.short)
+        cor = TextInput(label="Cor Hexadecimal", placeholder="Ex: #ff0000", style=discord.TextStyle.short)
+
+        async def on_submit(self, interaction):
+            nome_formatado = self.nome.value.lower().replace(" ", "_")
+            tipos_mensagem[nome_formatado] = {
+                "emoji": self.emoji.value,
+                "cor": self.cor.value
+            }
+            salvar_tipos_mensagem()
+            await interaction.response.send_message(f"✅ Tipo `{self.nome.value}` criado com sucesso!", ephemeral=True)
+
+    await ctx.send_modal(CriarTipoModal())
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def apagatipo(ctx):
+    if not tipos_mensagem:
+        await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado para apagar.")
+        return
+
+    options = [
+        SelectOption(label=tipo.replace('_', ' ').title(), value=tipo)
+        for tipo in tipos_mensagem.keys()
+    ]
+
+    class ApagarTipoSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o tipo para apagar", options=options)
+
+        async def callback(self, interaction):
+            tipo = self.values[0]
+            tipos_mensagem.pop(tipo, None)
+            salvar_tipos_mensagem()
+            await interaction.response.send_message(f"🗑️ Tipo `{tipo.replace('_', ' ').title()}` apagado com sucesso!", ephemeral=True)
+
+    view = View()
+    view.add_item(ApagarTipoSelect())
+    await ctx.send("🗑️ Selecione o tipo de mensagem que deseja apagar:", view=view)
+
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def mensagem(ctx):
     class TipoMensagemSelect(Select):
         def __init__(self):
@@ -389,13 +459,17 @@ async def ajuda(ctx):
         color=discord.Color.green(),
         description="Veja abaixo os comandos que você pode usar:"
     )
-    embed.add_field(name="!cargo", value="Define o cargo automático para novos membros.", inline=False)
-    embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
-    embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
-    embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
-    embed.add_field(name="!ajuda", value="Mostra esta mensagem com todos os comandos.", inline=False)
-    embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
-    embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada pelo BOT!", inline=False)
+embed.add_field(name="!cargo", value="Define o cargo automático para novos membros.", inline=False)
+embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
+embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
+embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
+embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, texto e imagem.", inline=False)
+embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
+embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para usar no !mensagem.", inline=False)
+embed.add_field(name="!apagatipo", value="Apaga um tipo de mensagem cadastrado.", inline=False)
+embed.add_field(name="!ajuda", value="Mostra esta mensagem de ajuda com todos os comandos disponíveis.", inline=False)
+embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping atual.", inline=False)
+
 
     await ctx.send(embed=embed)
 
