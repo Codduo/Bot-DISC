@@ -603,6 +603,7 @@ async def ajuda(ctx):
     embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
     embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
+    embed.add_field(name="!setcargomensagem", value="Define quais cargos poderão utilizar o !mensagem", inline=False)
     embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, imagem e menção.", inline=False)
     embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
     embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para o !mensagem.", inline=False)
