@@ -479,7 +479,6 @@ async def setcargomensagem(ctx):
     except:
         pass
 
-# Atualiza o comando !mensagem com proteção de permissões
 @bot.command()
 async def mensagem(ctx):
     guild_id = str(ctx.guild.id)
@@ -512,7 +511,6 @@ async def mensagem(ctx):
         async def callback(self, interaction_tipo: discord.Interaction):
             tipo_escolhido = self.values[0]
 
-            # Deleta a mensagem do menu após a seleção
             try:
                 await interaction_tipo.message.delete()
             except:
@@ -559,19 +557,27 @@ async def mensagem(ctx):
 
                     class CargoSelect(Select):
                         def __init__(self):
-                            super().__init__(placeholder="Escolha quem será mencionado", options=options_cargos)
+                            super().__init__(
+                                placeholder="Escolha quem será mencionado (pode selecionar vários)",
+                                options=options_cargos,
+                                min_values=1,
+                                max_values=len(options_cargos)
+                            )
 
                         async def callback(self, interaction_cargo: discord.Interaction):
-                            mencao_id = self.values[0]
+                            mencao_ids = self.values
+
                             try:
                                 await interaction_cargo.message.delete()
                             except:
                                 pass
 
-                            if mencao_id != "none":
-                                await interaction_cargo.channel.send(content=f"<@&{mencao_id}>", embed=embed)
-                            else:
+                            if "none" in mencao_ids:
                                 await interaction_cargo.channel.send(embed=embed)
+                            else:
+                                mencoes = [f"<@&{mencao_id}>" for mencao_id in mencao_ids]
+                                content = " ".join(mencoes)
+                                await interaction_cargo.channel.send(content=content, embed=embed)
 
                             await interaction_cargo.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
 
@@ -585,7 +591,6 @@ async def mensagem(ctx):
     view_tipo.add_item(TipoSelect())
     await ctx.send("📚 Selecione o tipo da mensagem:", view=view_tipo)
 
-    # Apaga o comando depois que mandar o menu
     try:
         await ctx.message.delete()
     except:
