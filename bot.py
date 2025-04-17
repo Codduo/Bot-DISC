@@ -74,12 +74,14 @@ async def cargo(ctx):
         async def callback(self, interaction: discord.Interaction):
             selected_role_id = int(self.values[0])
             auto_roles[ctx.guild.id] = selected_role_id
+            salvar_dados()  # <<< Aqui salva IMEDIATAMENTE!
             role = ctx.guild.get_role(selected_role_id)
             await interaction.response.send_message(f"✅ Cargo automático configurado para: **{role.name}**", ephemeral=True)
 
     view = View()
     view.add_item(RoleSelect())
     await ctx.send("👥 Selecione o cargo automático:", view=view)
+
 
 @bot.event
 async def on_ready():
@@ -107,12 +109,14 @@ async def setcargo(ctx):
         async def callback(self, interaction: discord.Interaction):
             selected = int(self.values[0])
             mention_roles[ctx.guild.id] = selected
+            salvar_dados()  # <<< E aqui também!
             role = ctx.guild.get_role(selected)
             await interaction.response.send_message(f"📌 Cargo a ser mencionado nos tickets definido como: **{role.mention}**", ephemeral=True)
 
     view = View()
     view.add_item(MentionRoleSelect())
     await ctx.send("🔣 Selecione o cargo que será mencionado nos tickets:", view=view)
+
 
 # Modal que abre com o botão dos tickets
 class TicketModal(Modal, title="Solicitar Cargo"):
