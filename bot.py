@@ -372,7 +372,6 @@ async def adicionarmensagem(ctx):
         def __init__(self):
             roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
             options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
-
             super().__init__(placeholder="Selecione o cargo para permitir o uso do !mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
@@ -389,19 +388,22 @@ async def adicionarmensagem(ctx):
             else:
                 await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
 
+    # Botão para abrir o seletor
     class AdicionarRoleButton(Button):
         def __init__(self):
-            super().__init__(label="Adicionar Cargo Autorizado", style=discord.ButtonStyle.primary)
+            super().__init__(label="➕ Autorizar Cargo", style=discord.ButtonStyle.success)
 
         async def callback(self, interaction: discord.Interaction):
             view = View(timeout=60)
             view.add_item(AdicionarRoleSelect())
             await interaction.response.send_message("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view, ephemeral=True)
 
+    # Aqui cria o primeiro botão
     view = View(timeout=60)
     view.add_item(AdicionarRoleButton())
 
-    await ctx.send("➕ Clique abaixo para adicionar um cargo autorizado a usar o `!mensagem`:", view=view)
+    await ctx.send("🔹 Clique no botão para adicionar quem pode usar o comando `!mensagem`:", view=view)
+
 
 
 @bot.command()
@@ -512,7 +514,11 @@ async def mensagem(ctx):
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
     options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
-    mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=None)  # Cria a base
+    view_mention = View(timeout=60)
+view_mention.add_item(EscolherMencao())
+
+mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
+
 
     class EscolherMencao(Select):
         def __init__(self):
