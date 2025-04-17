@@ -304,6 +304,7 @@ async def clear(ctx):
 async def mensagem(ctx):
     class MensagemModal(Modal, title="Enviar Mensagem"):
         conteudo = TextInput(label="Mensagem", placeholder="Digite o texto que será enviado...", style=discord.TextStyle.paragraph)
+        imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
 
         async def on_submit(self, interaction: discord.Interaction):
             embed = discord.Embed(
@@ -312,6 +313,9 @@ async def mensagem(ctx):
             )
             embed.set_footer(text=f"Enviado por: {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
             embed.timestamp = datetime.utcnow()
+
+            if self.imagem_url.value:
+                embed.set_image(url=self.imagem_url.value)
 
             await ctx.channel.send(embed=embed)
             await interaction.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
