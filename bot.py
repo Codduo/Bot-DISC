@@ -22,7 +22,8 @@ mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
 mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
-cargo_autorizado_mensagem = {}  # guild_id: role_id
+cargo_autorizado_mensagem = {}  # guild_id: [lista de role_ids]
+
 
 
 import json
@@ -392,6 +393,26 @@ async def setcargomensagem(ctx):
             super().__init__(placeholder="Selecione o cargo autorizado para !mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
+            guild_id = str(ctx.guild.id)
+            selected_role_id = int(self.values[0])
+
+            if guild_id not in cargo_autorizado_mensagem:
+                cargo_autorizado_mensagem[guild_id] = []
+
+            if selected_role_id not in cargo_autorizado_mensagem[guild_id]:
+                cargo_autorizado_mensagem[guild_id].append(selected_role_id)
+                salvar_dados()
+                role = ctx.guild.get_role(selected_role_id)
+                await interaction.response.send_message(f"✅ Cargo **{role.name}** autorizado para o `!mensagem`.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"⚠️ Este cargo já tem autorização.", ephemeral=True)
+
+    view = View()
+    view.add_item(MensagemRoleSelect())
+    await ctx.send("🔹 Selecione o cargo que poderá usar o `!mensagem`:", view=view)
+
+
+        async def callback(self, interaction: discord.Interaction):
             selected_role_id = int(self.values[0])
             cargo_autorizado_mensagem[str(ctx.guild.id)] = selected_role_id
             salvar_dados()
@@ -465,13 +486,15 @@ async def apagatipo(ctx):
 @bot.command()
 async def mensagem(ctx):
     guild_id = str(ctx.guild.id)
+    user_roles = [r.id for r in ctx.author.roles]
+    autorizados = cargo_autorizado_mensagem.get(guild_id, [])
 
-    cargo_autorizado = cargo_autorizado_mensagem.get(guild_id)
-    
-    # Verificar permissão
-    if not ctx.author.guild_permissions.administrator and (cargo_autorizado not in [r.id for r in ctx.author.roles]):
+    # Verifica se é Admin ou tem algum cargo autorizado
+    if not ctx.author.guild_permissions.administrator and not any(role in autorizados for role in user_roles):
         await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
         return
+
+
 
     # Pegar todos os cargos para o usuário escolher quem vai mencionar
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
