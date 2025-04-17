@@ -31,8 +31,12 @@ def salvar_dados():
         "sugestao_channels": sugestao_channels,
         "test_channels": test_channels,
     }
-    with open("dados_servidor.json", "w") as f:
-        json.dump(dados, f)
+    temp_file = "dados_servidor_temp.json"
+    final_file = "dados_servidor.json"
+    with open(temp_file, "w") as f:
+        json.dump(dados, f, indent=4)  # indent deixa bonito e organizado
+    os.replace(temp_file, final_file)
+
 
 def carregar_dados():
     if os.path.exists("dados_servidor.json"):
