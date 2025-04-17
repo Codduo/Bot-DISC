@@ -346,5 +346,8 @@ async def on_guild_remove(guild):
 from dotenv import load_dotenv
 
 load_dotenv()
+carregar_dados()  # <<< ADICIONE ESTA LINHA AQUI
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
+
