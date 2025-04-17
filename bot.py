@@ -77,7 +77,7 @@ async def cargo(ctx):
 
         async def callback(self, interaction: discord.Interaction):
             selected_role_id = int(self.values[0])
-            auto_roles[ctx.guild.id] = selected_role_id
+            auto_roles[str(ctx.guild.id)] = selected_role_id
             salvar_dados()  # <<< Aqui salva IMEDIATAMENTE!
             role = ctx.guild.get_role(selected_role_id)
             await interaction.response.send_message(f"✅ Cargo automático configurado para: **{role.name}**", ephemeral=True)
@@ -112,7 +112,7 @@ async def setcargo(ctx):
 
         async def callback(self, interaction: discord.Interaction):
             selected = int(self.values[0])
-            mention_roles[ctx.guild.id] = selected
+            mention_roles[str(ctx.guild.id)] = selected
             salvar_dados()  # <<< E aqui também!
             role = ctx.guild.get_role(selected)
             await interaction.response.send_message(f"📌 Cargo a ser mencionado nos tickets definido como: **{role.mention}**", ephemeral=True)
@@ -186,7 +186,7 @@ async def ticket(ctx):
 
         async def callback(self, interaction: discord.Interaction):
             selected_channel_id = int(self.values[0])
-            ticket_response_channels[ctx.guild.id] = selected_channel_id
+            ticket_response_channels[str(ctx.guild.id)] = selected_channel_id
             await interaction.response.send_message(f"✅ Canal de envio configurado para <#{selected_channel_id}>.", ephemeral=True)
             await ctx.send("📉 Solicite seu cargo abaixo:", view=TicketButtonView())
 
@@ -239,7 +239,7 @@ async def reclamacao(ctx):
 
         async def callback(self, interaction):
             canal_id = int(self.values[0])
-            sugestao_channels[ctx.guild.id] = canal_id
+            sugestao_channels[str(ctx.guild.id)] = canal_id
             await interaction.response.send_message("✅ Canal de destino configurado!", ephemeral=True)
             await ctx.send(
                 "**📜 Envie sua sugestão ou reclamação de forma anônima. Ninguém saberá que foi você.**",
