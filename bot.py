@@ -445,13 +445,6 @@ async def mensagem(ctx):
     await ctx.send("📨 Escolha o tipo de mensagem que deseja enviar:", view=TipoMensagemView())
 
 
-@bot.command()
-async def ping(ctx):
-    latency = round(bot.latency * 1000)
-    await ctx.send(f"🏓 PONG! O bot está funcional.\n📶 Ping atual: `{latency}ms`")
-
-
-# Comando de ajuda
 @bot.command(name="ajuda")
 async def ajuda(ctx):
     embed = discord.Embed(
@@ -459,19 +452,19 @@ async def ajuda(ctx):
         color=discord.Color.green(),
         description="Veja abaixo os comandos que você pode usar:"
     )
-embed.add_field(name="!cargo", value="Define o cargo automático para novos membros.", inline=False)
-embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
-embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
-embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
-embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, texto e imagem.", inline=False)
-embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
-embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para usar no !mensagem.", inline=False)
-embed.add_field(name="!apagatipo", value="Apaga um tipo de mensagem cadastrado.", inline=False)
-embed.add_field(name="!ajuda", value="Mostra esta mensagem de ajuda com todos os comandos disponíveis.", inline=False)
-embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping atual.", inline=False)
-
+    embed.add_field(name="!cargo", value="Define o cargo automático para novos membros.", inline=False)
+    embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
+    embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
+    embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
+    embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, texto e imagem.", inline=False)
+    embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
+    embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para usar no !mensagem.", inline=False)
+    embed.add_field(name="!apagatipo", value="Apaga um tipo de mensagem cadastrado.", inline=False)
+    embed.add_field(name="!ajuda", value="Mostra esta mensagem de ajuda com todos os comandos disponíveis.", inline=False)
+    embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping atual.", inline=False)
 
     await ctx.send(embed=embed)
+
 
 
 
