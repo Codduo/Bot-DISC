@@ -5,6 +5,7 @@ from discord import SelectOption
 from math import ceil
 import asyncio
 from datetime import datetime
+import logging
 
 
 intents = discord.Intents.default()
@@ -23,6 +24,19 @@ test_channels = {}  # guild_id: canal para mensagens de teste
 
 import json
 import os
+
+import logging
+
+# Configura o Logger
+logging.basicConfig(
+    level=logging.INFO,  # Nível de log: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%d/%m/%Y %H:%M:%S"
+)
+
+# Substitui o print padrão do discord.py por logging
+logger = logging.getLogger('discord')
+logger.setLevel(logging.INFO)  # Pode ajustar para DEBUG se quiser ver ainda mais detalhes
 
 
 # Carregar Tipos de Mensagem
