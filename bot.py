@@ -368,16 +368,12 @@ async def tipos(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def adicionarmensagem(ctx):
-    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
-
-    if not options:
-        await ctx.send("⚠️ Não há cargos disponíveis para configurar permissão.")
-        return
-
     class AdicionarRoleSelect(Select):
         def __init__(self):
-            super().__init__(placeholder="Selecione um cargo para permitir usar !mensagem", options=options)
+            roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+            options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+
+            super().__init__(placeholder="Selecione o cargo para permitir o uso do !mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
             role_id = int(self.values[0])
@@ -389,20 +385,23 @@ async def adicionarmensagem(ctx):
             if role_id not in mensagem_roles[guild_id]:
                 mensagem_roles[guild_id].append(role_id)
                 salvar_dados()
-                await interaction.response.send_message(f"✅ Cargo autorizado a usar `!mensagem`.", ephemeral=True)
+                await interaction.response.send_message(f"✅ Cargo autorizado a usar `!mensagem`!", ephemeral=True)
             else:
                 await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
 
-    class AdicionarRoleView(View):
+    class AdicionarRoleButton(Button):
         def __init__(self):
-            super().__init__(timeout=60)
-            self.add_item(AdicionarRoleSelect())
+            super().__init__(label="Adicionar Cargo Autorizado", style=discord.ButtonStyle.primary)
 
-    await ctx.send(
-        "📋 Selecione o cargo que poderá usar o comando `!mensagem`:",
-        view=AdicionarRoleView()
-    )
+        async def callback(self, interaction: discord.Interaction):
+            view = View(timeout=60)
+            view.add_item(AdicionarRoleSelect())
+            await interaction.response.send_message("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view, ephemeral=True)
 
+    view = View(timeout=60)
+    view.add_item(AdicionarRoleButton())
+
+    await ctx.send("➕ Clique abaixo para adicionar um cargo autorizado a usar o `!mensagem`:", view=view)
 
 
 @bot.command()
