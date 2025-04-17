@@ -393,10 +393,19 @@ async def adicionarmensagem(ctx):
             else:
                 await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
 
-    view = View(timeout=60)
-    view.add_item(AdicionarRoleSelect())
+    class AdicionarRoleButton(Button):
+        def __init__(self):
+            super().__init__(label="➕ Adicionar Cargo", style=discord.ButtonStyle.primary)
 
-    await ctx.send("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view)
+        async def callback(self, interaction: discord.Interaction):
+            view = View(timeout=60)
+            view.add_item(AdicionarRoleSelect())
+            await interaction.response.send_message("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view, ephemeral=True)
+
+    view = View(timeout=60)
+    view.add_item(AdicionarRoleButton())
+    await ctx.send("🔹 Clique abaixo para adicionar quem pode usar o `!mensagem`:", view=view)
+
 
 
 @bot.command()
@@ -506,35 +515,30 @@ async def mensagem(ctx):
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
     options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
-    # --- AQUI define a classe PRIMEIRO
     class EscolherMencao(Select):
         def __init__(self):
-            super().__init__(placeholder="Selecione quem será mencionado na mensagem", options=options)
+            super().__init__(placeholder="Selecione quem será mencionado", options=options)
 
-        async def callback(self, interaction_mention: discord.Interaction):
+        async def callback(self, interaction: discord.Interaction):
             mencao_id = self.values[0]
 
-            class TipoMensagemSelect(Select):
+            class EscolherTipoMensagem(Select):
                 def __init__(self):
-                    options_tipo = [
-                        SelectOption(label=tipo.capitalize(), value=tipo, emoji=info.get("emoji", "📝"))
+                    tipos = [
+                        SelectOption(label=tipo.replace('_', ' ').title(), value=tipo, emoji=info.get("emoji", "📝"))
                         for tipo, info in tipos_mensagem.items()
                     ]
-                    super().__init__(placeholder="Selecione o tipo da mensagem", options=options_tipo)
+                    super().__init__(placeholder="Selecione o tipo da mensagem", options=tipos)
 
                 async def callback(self, interaction_tipo: discord.Interaction):
                     tipo = self.values[0]
 
-                    class MensagemModal(Modal, title="Digite a Mensagem"):
-                        conteudo = TextInput(label="Mensagem", placeholder="Digite aqui o conteúdo da mensagem...", style=discord.TextStyle.paragraph)
-                        imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
+                    class ModalMensagem(Modal, title="Digite a Mensagem"):
+                        conteudo = TextInput(label="Mensagem", placeholder="Digite a mensagem...", style=discord.TextStyle.paragraph)
+                        imagem_url = TextInput(label="URL da imagem (opcional)", placeholder="Cole o link da imagem...", required=False)
 
                         async def on_submit(self, interaction_modal: discord.Interaction):
                             info = tipos_mensagem.get(tipo)
-                            if not info:
-                                await interaction_modal.response.send_message("❌ Tipo de mensagem inválido.", ephemeral=True)
-                                return
-
                             cor = int(info.get("cor", "#3498db").replace("#", ""), 16)
 
                             embed = discord.Embed(
@@ -561,18 +565,17 @@ async def mensagem(ctx):
                                 pass
 
                     await interaction_tipo.message.delete()
-                    await interaction_tipo.response.send_modal(MensagemModal())
+                    await interaction_tipo.response.send_modal(ModalMensagem())
 
             view_tipo = View(timeout=60)
-            view_tipo.add_item(TipoMensagemSelect())
-            await interaction_mention.message.delete()
-            await interaction_mention.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
+            view_tipo.add_item(EscolherTipoMensagem())
+            await interaction.message.delete()
+            await interaction.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
 
-    # --- AQUI cria a view DEPOIS de definir a classe
-    view_mention = View(timeout=60)
-    view_mention.add_item(EscolherMencao())
+    view = View(timeout=60)
+    view.add_item(EscolherMencao())
 
-    await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
+    await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view)
 
 
 
