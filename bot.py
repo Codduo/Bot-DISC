@@ -299,6 +299,26 @@ async def clear(ctx):
     view.add_item(ConfirmarLimpeza())
     mensagem = await ctx.send("⚠️ Tem certeza que deseja limpar todas as mensagens deste canal?", view=view)
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def mensagem(ctx):
+    class MensagemModal(Modal, title="Enviar Mensagem"):
+        conteudo = TextInput(label="Mensagem", placeholder="Digite o texto que será enviado...", style=discord.TextStyle.paragraph)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            embed = discord.Embed(
+                description=self.conteudo.value,
+                color=discord.Color.blurple()
+            )
+            embed.set_footer(text=f"Enviado por: {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+            embed.timestamp = datetime.utcnow()
+
+            await ctx.channel.send(embed=embed)
+            await interaction.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
+
+    await ctx.send_modal(MensagemModal())
+
+
 
 @bot.command()
 async def ping(ctx):
@@ -320,6 +340,7 @@ async def ajuda(ctx):
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
     embed.add_field(name="!ajuda", value="Mostra esta mensagem com todos os comandos.", inline=False)
     embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
+    embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada pelo BOT!", inline=False)
 
     await ctx.send(embed=embed)
 
