@@ -514,12 +514,6 @@ async def mensagem(ctx):
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
     options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
-    view_mention = View(timeout=60)
-view_mention.add_item(EscolherMencao())
-
-mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
-
-
     class EscolherMencao(Select):
         def __init__(self):
             super().__init__(placeholder="Selecione quem será mencionado na mensagem", options=options)
@@ -568,11 +562,11 @@ mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:
 
                             await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
 
-                            # ✅ Agora, depois que mandou, APAGA a mensagem original (o comando !mensagem)
+                            # Agora, DEPOIS de enviar, apaga o comando !mensagem
                             try:
                                 await ctx.message.delete()
                             except discord.errors.NotFound:
-                                pass  # Se já tiver sido apagado
+                                pass
 
                     await interaction_tipo.message.delete()
                     await interaction_tipo.response.send_modal(MensagemModal())
@@ -585,7 +579,8 @@ mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:
     view_mention = View(timeout=60)
     view_mention.add_item(EscolherMencao())
 
-    await mensagem_cmd.edit(view=view_mention)
+    mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
+
 
 
 @bot.command(name="ajuda")
