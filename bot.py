@@ -21,6 +21,8 @@ ticket_response_channels = {}
 mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
+mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
+
 
 import json
 import os
@@ -71,25 +73,26 @@ def salvar_dados():
         "mention_roles": mention_roles,
         "sugestao_channels": sugestao_channels,
         "test_channels": test_channels,
+        "mensagem_roles": mensagem_roles,  # <--- ADICIONE ESTA LINHA
     }
     temp_file = "dados_servidor_temp.json"
     final_file = "dados_servidor.json"
-    with open(temp_file, "w") as f:
-        json.dump(dados, f, indent=4)  # indent deixa bonito e organizado
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
     os.replace(temp_file, final_file)
-
 
 def carregar_dados():
     if os.path.exists("dados_servidor.json"):
-        with open("dados_servidor.json", "r") as f:
+        with open("dados_servidor.json", "r", encoding="utf-8") as f:
             conteudo = f.read().strip()
-            if conteudo:  # Só tenta carregar se não estiver vazio
+            if conteudo:
                 dados = json.loads(conteudo)
                 auto_roles.update(dados.get("auto_roles", {}))
                 ticket_response_channels.update(dados.get("ticket_response_channels", {}))
                 mention_roles.update(dados.get("mention_roles", {}))
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
                 test_channels.update(dados.get("test_channels", {}))
+                mensagem_roles.update(dados.get("mensagem_roles", {}))  # <--- ADICIONE ESTA LINHA
 
 
 @bot.event
@@ -364,13 +367,76 @@ async def tipos(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def adicionarmensagem(ctx):
+    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+
+    class AdicionarRoleSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione um cargo para permitir usar !mensagem", options=options)
+
+        async def callback(self, interaction):
+            role_id = int(self.values[0])
+            guild_id = str(ctx.guild.id)
+
+            if guild_id not in mensagem_roles:
+                mensagem_roles[guild_id] = []
+
+            if role_id not in mensagem_roles[guild_id]:
+                mensagem_roles[guild_id].append(role_id)
+                salvar_dados()
+                await interaction.response.send_message(f"✅ Cargo autorizado a usar !mensagem.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
+
+    view = View()
+    view.add_item(AdicionarRoleSelect())
+    await ctx.send("📋 Selecione o cargo que poderá usar o comando !mensagem:", view=view)
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removermensagem(ctx):
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in mensagem_roles or not mensagem_roles[guild_id]:
+        await ctx.send("⚠️ Nenhum cargo autorizado para remover.")
+        return
+
+    options = []
+    for role_id in mensagem_roles[guild_id]:
+        role = ctx.guild.get_role(role_id)
+        if role:
+            options.append(SelectOption(label=role.name, value=str(role.id)))
+
+    class RemoverRoleSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o cargo para remover a permissão", options=options)
+
+        async def callback(self, interaction):
+            role_id = int(self.values[0])
+            if role_id in mensagem_roles[guild_id]:
+                mensagem_roles[guild_id].remove(role_id)
+                salvar_dados()
+                await interaction.response.send_message("🗑️ Cargo removido da lista de permissões.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Cargo não encontrado na lista.", ephemeral=True)
+
+    view = View()
+    view.add_item(RemoverRoleSelect())
+    await ctx.send("🗑️ Selecione o cargo que deseja remover da permissão de !mensagem:", view=view)
+
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def criartipo(ctx):
     class CriarTipoModal(Modal, title="Criar Novo Tipo de Mensagem"):
         nome = TextInput(label="Nome do Tipo", placeholder="Ex: Alerta Importante", style=discord.TextStyle.short)
         emoji = TextInput(label="Emoji", placeholder="Ex: 🚨", style=discord.TextStyle.short)
         cor = TextInput(label="Cor Hexadecimal", placeholder="Ex: #ff0000", style=discord.TextStyle.short)
 
-        async def on_submit(self, interaction):
+        async def on_submit(self, interaction: discord.Interaction):
             nome_formatado = self.nome.value.lower().replace(" ", "_")
             tipos_mensagem[nome_formatado] = {
                 "emoji": self.emoji.value,
@@ -379,7 +445,17 @@ async def criartipo(ctx):
             salvar_tipos_mensagem()
             await interaction.response.send_message(f"✅ Tipo `{self.nome.value}` criado com sucesso!", ephemeral=True)
 
-    await ctx.send_modal(CriarTipoModal())
+    # Agora cria um botão para abrir o modal:
+    class CriarTipoButton(Button):
+        def __init__(self):
+            super().__init__(label="Criar Novo Tipo", style=discord.ButtonStyle.primary)
+
+        async def callback(self, interaction: discord.Interaction):
+            await interaction.response.send_modal(CriarTipoModal())
+
+    view = View()
+    view.add_item(CriarTipoButton())
+    await ctx.send("➕ Clique abaixo para criar um novo tipo de mensagem:", view=view)
 
 
 @bot.command()
@@ -413,50 +489,81 @@ async def apagatipo(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def mensagem(ctx):
-    class TipoMensagemSelect(Select):
+    guild_id = str(ctx.guild.id)
+    user_roles = [r.id for r in ctx.author.roles]
+
+    autorizados = mensagem_roles.get(guild_id, [])
+
+    if not any(role in autorizados for role in user_roles) and not ctx.author.guild_permissions.administrator:
+        await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
+        return
+
+    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+    options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
+
+    class EscolherMencao(Select):
         def __init__(self):
-            options = [
-                SelectOption(label=tipo.capitalize(), value=tipo, emoji=info.get("emoji", "📝"))
-                for tipo, info in tipos_mensagem.items()
-            ]
-            super().__init__(placeholder="Selecione o tipo da mensagem", options=options)
+            super().__init__(placeholder="Selecione quem será mencionado na mensagem", options=options)
 
-        async def callback(self, interaction: discord.Interaction):
-            tipo = self.values[0]
+        async def callback(self, interaction_mention: discord.Interaction):
+            mencao_id = self.values[0]
 
-            class MensagemModal(Modal, title="Digite a Mensagem"):
-                conteudo = TextInput(label="Mensagem", placeholder="Digite aqui o conteúdo da mensagem...", style=discord.TextStyle.paragraph)
-                imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
+            class TipoMensagemSelect(Select):
+                def __init__(self):
+                    options_tipo = [
+                        SelectOption(label=tipo.capitalize(), value=tipo, emoji=info.get("emoji", "📝"))
+                        for tipo, info in tipos_mensagem.items()
+                    ]
+                    super().__init__(placeholder="Selecione o tipo da mensagem", options=options_tipo)
 
-                async def on_submit(self, interaction_modal: discord.Interaction):
-                    info = tipos_mensagem.get(tipo)
-                    if not info:
-                        await interaction_modal.response.send_message("❌ Tipo de mensagem inválido.", ephemeral=True)
-                        return
+                async def callback(self, interaction_tipo: discord.Interaction):
+                    tipo = self.values[0]
 
-                    cor = int(info.get("cor", "#3498db").replace("#", ""), 16)
+                    class MensagemModal(Modal, title="Digite a Mensagem"):
+                        conteudo = TextInput(label="Mensagem", placeholder="Digite aqui o conteúdo da mensagem...", style=discord.TextStyle.paragraph)
+                        imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
 
-                    embed = discord.Embed(
-                        title=f"{info.get('emoji', '')} {tipo.replace('_', ' ').title()}",
-                        description=self.conteudo.value,
-                        color=cor
-                    )
-                    embed.timestamp = datetime.utcnow()
+                        async def on_submit(self, interaction_modal: discord.Interaction):
+                            info = tipos_mensagem.get(tipo)
+                            if not info:
+                                await interaction_modal.response.send_message("❌ Tipo de mensagem inválido.", ephemeral=True)
+                                return
 
-                    if self.imagem_url.value:
-                        embed.set_image(url=self.imagem_url.value)
+                            cor = int(info.get("cor", "#3498db").replace("#", ""), 16)
 
-                    await interaction_modal.channel.send(embed=embed)
-                    await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
+                            embed = discord.Embed(
+                                title=f"{info.get('emoji', '')} {tipo.replace('_', ' ').title()}",
+                                description=self.conteudo.value,
+                                color=cor
+                            )
+                            embed.timestamp = datetime.utcnow()
 
-            await interaction.response.send_modal(MensagemModal())
+                            if self.imagem_url.value:
+                                embed.set_image(url=self.imagem_url.value)
 
-    class TipoMensagemView(View):
-        def __init__(self):
-            super().__init__(timeout=60)
-            self.add_item(TipoMensagemSelect())
+                            if mencao_id != "none":
+                                mention = f"<@&{mencao_id}>"
+                                await interaction_modal.channel.send(content=mention, embed=embed)
+                            else:
+                                await interaction_modal.channel.send(embed=embed)
 
-    await ctx.send("📨 Escolha o tipo de mensagem que deseja enviar:", view=TipoMensagemView())
+                            await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
+
+                    await interaction_tipo.message.delete()  # Apaga o seletor de tipo
+                    await interaction_tipo.response.send_modal(MensagemModal())
+
+            view_tipo = View(timeout=60)
+            view_tipo.add_item(TipoMensagemSelect())
+            await interaction_mention.message.delete()  # Apaga o seletor de mencao
+            await interaction_mention.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
+
+    view_mention = View(timeout=60)
+    view_mention.add_item(EscolherMencao())
+
+    await ctx.message.delete()  # Apaga o comando !mensagem
+    await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
+
 
 
 @bot.command(name="ajuda")
