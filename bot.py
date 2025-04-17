@@ -392,25 +392,6 @@ async def setcargomensagem(ctx):
         def __init__(self):
             super().__init__(placeholder="Selecione o cargo autorizado para !mensagem", options=options)
 
-        async def callback(self, interaction: discord.Interaction):
-            guild_id = str(ctx.guild.id)
-            selected_role_id = int(self.values[0])
-
-            if guild_id not in cargo_autorizado_mensagem:
-                cargo_autorizado_mensagem[guild_id] = []
-
-            if selected_role_id not in cargo_autorizado_mensagem[guild_id]:
-                cargo_autorizado_mensagem[guild_id].append(selected_role_id)
-                salvar_dados()
-                role = ctx.guild.get_role(selected_role_id)
-                await interaction.response.send_message(f"✅ Cargo **{role.name}** autorizado para o `!mensagem`.", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"⚠️ Este cargo já tem autorização.", ephemeral=True)
-
-    view = View()
-    view.add_item(MensagemRoleSelect())
-    await ctx.send("🔹 Selecione o cargo que poderá usar o `!mensagem`:", view=view)
-
 
         async def callback(self, interaction: discord.Interaction):
             selected_role_id = int(self.values[0])
