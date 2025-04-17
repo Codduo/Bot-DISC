@@ -128,9 +128,9 @@ class TicketModal(Modal, title="Solicitar Cargo"):
     cargo = TextInput(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=discord.TextStyle.paragraph)
 
     async def on_submit(self, interaction: discord.Interaction):
-        mod_channel_id = ticket_response_channels.get(interaction.guild.id)
+        mod_channel_id = ticket_response_channels.get(str(interaction.guild.id))
         mod_channel = bot.get_channel(mod_channel_id)
-        cargo_id = mention_roles.get(interaction.guild.id)
+        cargo_id = mention_roles.get(str(interaction.guild.id))
 
         try:
             await interaction.user.edit(nick=self.nome.value)
@@ -254,7 +254,7 @@ class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
     mensagem = TextInput(label="Escreva aqui", style=discord.TextStyle.paragraph)
 
     async def on_submit(self, interaction):
-        canal_id = sugestao_channels.get(interaction.guild.id)
+        canal_id = sugestao_channels.get(str(interaction.guild.id))
         canal = bot.get_channel(canal_id)
         if canal:
             embed = discord.Embed(title="📢 Sugestão/Reclamação Anônima", description=self.mensagem.value, color=discord.Color.orange())
