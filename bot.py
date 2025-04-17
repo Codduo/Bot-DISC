@@ -302,40 +302,57 @@ async def clear(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def mensagem(ctx):
-    try:
-        await ctx.message.delete()  # Deleta o comando !mensagem enviado
-    except discord.Forbidden:
-        pass  # Se não puder apagar, continua assim mesmo
-
-    class MensagemModal(Modal, title="Enviar Mensagem"):
-        conteudo = TextInput(label="Mensagem", placeholder="Digite o texto que será enviado...", style=discord.TextStyle.paragraph)
-        imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
-
-        async def on_submit(self, interaction: discord.Interaction):
-            embed = discord.Embed(
-                description=self.conteudo.value,
-                color=discord.Color.blurple()
-            )
-            embed.set_footer(text=f"Enviado por: {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-            embed.timestamp = datetime.utcnow()
-
-            if self.imagem_url.value:
-                embed.set_image(url=self.imagem_url.value)
-
-            await interaction.channel.send(embed=embed)
-            await interaction.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
-
-    class MensagemButton(Button):
+    class TipoMensagemSelect(Select):
         def __init__(self):
-            super().__init__(label="📝 Clique aqui para escrever sua mensagem", style=discord.ButtonStyle.primary)
+            options = [
+                SelectOption(label="Aviso", value="aviso", emoji="⚠️"),
+                SelectOption(label="Informação", value="informacao", emoji="ℹ️"),
+                SelectOption(label="Aviso Importante", value="aviso_importante", emoji="🚨"),
+                SelectOption(label="Desligamento", value="desligamento", emoji="🏴"),
+                SelectOption(label="Contratação", value="contratacao", emoji="🟢")
+            ]
+            super().__init__(placeholder="Selecione o tipo da mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
+            tipo = self.values[0]
+
+            class MensagemModal(Modal, title="Digite a Mensagem"):
+                conteudo = TextInput(label="Mensagem", placeholder="Digite aqui o conteúdo da mensagem...", style=discord.TextStyle.paragraph)
+
+                async def on_submit(self, interaction_modal: discord.Interaction):
+                    cores = {
+                        "aviso": discord.Color.gold(),
+                        "informacao": discord.Color.blue(),
+                        "aviso_importante": discord.Color.red(),
+                        "desligamento": discord.Color.dark_grey(),
+                        "contratacao": discord.Color.green()
+                    }
+                    titulos = {
+                        "aviso": "⚠️ Aviso",
+                        "informacao": "ℹ️ Informação",
+                        "aviso_importante": "🚨 AVISO IMPORTANTE",
+                        "desligamento": "🏴 Desligamento",
+                        "contratacao": "🟢 Contratação"
+                    }
+
+                    embed = discord.Embed(
+                        title=titulos[tipo],
+                        description=self.conteudo.value,
+                        color=cores[tipo]
+                    )
+                    embed.timestamp = datetime.utcnow()
+
+                    await interaction_modal.channel.send(embed=embed)
+                    await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
+
             await interaction.response.send_modal(MensagemModal())
 
-    view = View()
-    view.add_item(MensagemButton())
+    class TipoMensagemView(View):
+        def __init__(self):
+            super().__init__(timeout=60)
+            self.add_item(TipoMensagemSelect())
 
-    await ctx.send(view=view)
+    await ctx.send("📨 Escolha o tipo de mensagem que deseja enviar:", view=TipoMensagemView())
 
 
 
