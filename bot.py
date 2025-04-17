@@ -22,6 +22,7 @@ mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
 mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
+cargo_autorizado_mensagem = {}  # guild_id: role_id
 
 
 import json
@@ -73,8 +74,10 @@ def salvar_dados():
         "mention_roles": mention_roles,
         "sugestao_channels": sugestao_channels,
         "test_channels": test_channels,
-        "mensagem_roles": mensagem_roles,  # <--- ADICIONE ESTA LINHA
+        "mensagem_roles": mensagem_roles,
+        "cargo_autorizado_mensagem": cargo_autorizado_mensagem,
     }
+
     temp_file = "dados_servidor_temp.json"
     final_file = "dados_servidor.json"
     with open(temp_file, "w", encoding="utf-8") as f:
@@ -93,6 +96,8 @@ def carregar_dados():
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
                 test_channels.update(dados.get("test_channels", {}))
                 mensagem_roles.update(dados.get("mensagem_roles", {}))  # <--- ADICIONE ESTA LINHA
+                cargo_autorizado_mensagem.update(dados.get("cargo_autorizado_mensagem", {}))
+
 
 
 @bot.event
@@ -367,79 +372,23 @@ async def tipos(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def adicionarmensagem(ctx):
+async def setcargomensagem(ctx):
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
 
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
-        return
-
-    class AdicionarRoleSelect(Select):
+    class RoleSelect(Select):
         def __init__(self):
-            super().__init__(placeholder="Selecione o cargo para autorizar o uso do !mensagem", options=options)
+            super().__init__(placeholder="Selecione o cargo que pode usar o !mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
-            guild_id = str(interaction.guild.id)
-            role_id = int(self.values[0])
-
-            if guild_id not in mensagem_roles:
-                mensagem_roles[guild_id] = []
-
-            if role_id not in mensagem_roles[guild_id]:
-                mensagem_roles[guild_id].append(role_id)
-                salvar_dados()
-                await interaction.response.send_message(f"✅ Cargo autorizado a usar o `!mensagem`.", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
-
-    class AdicionarRoleButton(Button):
-        def __init__(self):
-            super().__init__(label="➕ Adicionar Cargo", style=discord.ButtonStyle.primary)
-
-        async def callback(self, interaction: discord.Interaction):
-            view = View(timeout=60)
-            view.add_item(AdicionarRoleSelect())
-            await interaction.response.send_message("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view, ephemeral=True)
-
-    view = View(timeout=60)
-    view.add_item(AdicionarRoleButton())
-    await ctx.send("🔹 Clique abaixo para adicionar quem pode usar o `!mensagem`:", view=view)
-
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def removermensagem(ctx):
-    guild_id = str(ctx.guild.id)
-
-    if guild_id not in mensagem_roles or not mensagem_roles[guild_id]:
-        await ctx.send("⚠️ Nenhum cargo autorizado para remover.")
-        return
-
-    options = []
-    for role_id in mensagem_roles[guild_id]:
-        role = ctx.guild.get_role(role_id)
-        if role:
-            options.append(SelectOption(label=role.name, value=str(role.id)))
-
-    class RemoverRoleSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo para remover a permissão", options=options)
-
-        async def callback(self, interaction):
-            role_id = int(self.values[0])
-            if role_id in mensagem_roles[guild_id]:
-                mensagem_roles[guild_id].remove(role_id)
-                salvar_dados()
-                await interaction.response.send_message("🗑️ Cargo removido da lista de permissões.", ephemeral=True)
-            else:
-                await interaction.response.send_message("❌ Cargo não encontrado na lista.", ephemeral=True)
+            selected = int(self.values[0])
+            cargo_autorizado_mensagem[str(ctx.guild.id)] = selected
+            salvar_dados()
+            await interaction.response.send_message("✅ Cargo autorizado a usar o !mensagem definido.", ephemeral=True)
 
     view = View()
-    view.add_item(RemoverRoleSelect())
-    await ctx.send("🗑️ Selecione o cargo que deseja remover da permissão de !mensagem:", view=view)
-
+    view.add_item(RoleSelect())
+    await ctx.send("🔹 Selecione o cargo que poderá usar o !mensagem:", view=view)
 
 
 @bot.command()
@@ -505,11 +454,12 @@ async def mensagem(ctx):
     guild_id = str(ctx.guild.id)
     user_roles = [r.id for r in ctx.author.roles]
 
-    autorizados = mensagem_roles.get(guild_id, [])
+    cargo_autorizado = cargo_autorizado_mensagem.get(str(ctx.guild.id))
 
-    if not ctx.author.guild_permissions.administrator and not any(role in autorizados for role in user_roles):
+    if not ctx.author.guild_permissions.administrator and not any(r.id == cargo_autorizado for r in ctx.author.roles):
         await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
         return
+
 
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
@@ -591,8 +541,6 @@ async def ajuda(ctx):
     embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
     embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, imagem e menção.", inline=False)
-    embed.add_field(name="!adicionarmensagem", value="Autoriza um cargo a usar o comando !mensagem.", inline=False)
-    embed.add_field(name="!removermensagem", value="Remove a autorização de um cargo para o !mensagem.", inline=False)
     embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
     embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para o !mensagem.", inline=False)
     embed.add_field(name="!apagatipo", value="Apaga um tipo de mensagem cadastrado.", inline=False)
