@@ -381,21 +381,27 @@ async def tipos(ctx):
 @commands.has_permissions(administrator=True)
 async def setcargomensagem(ctx):
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles if r.name.strip()]
 
-    class RoleSelect(Select):
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
+        return
+
+    class MensagemRoleSelect(Select):
         def __init__(self):
-            super().__init__(placeholder="Selecione o cargo que pode usar o !mensagem", options=options)
+            super().__init__(placeholder="Selecione o cargo autorizado para !mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
-            selected = int(self.values[0])
-            cargo_autorizado_mensagem[str(ctx.guild.id)] = selected
+            selected_role_id = int(self.values[0])
+            cargo_autorizado_mensagem[str(ctx.guild.id)] = selected_role_id
             salvar_dados()
-            await interaction.response.send_message("✅ Cargo autorizado a usar o !mensagem definido.", ephemeral=True)
+            role = ctx.guild.get_role(selected_role_id)
+            await interaction.response.send_message(f"✅ Cargo autorizado para o comando `!mensagem`: **{role.name}**", ephemeral=True)
 
     view = View()
-    view.add_item(RoleSelect())
-    await ctx.send("🔹 Selecione o cargo que poderá usar o !mensagem:", view=view)
+    view.add_item(MensagemRoleSelect())
+    await ctx.send("🔹 Selecione o cargo que poderá usar o `!mensagem`:", view=view)
+
 
 
 @bot.command()
@@ -459,15 +465,15 @@ async def apagatipo(ctx):
 @bot.command()
 async def mensagem(ctx):
     guild_id = str(ctx.guild.id)
-    user_roles = [r.id for r in ctx.author.roles]
 
-    cargo_autorizado = cargo_autorizado_mensagem.get(str(ctx.guild.id))
-
-    if not ctx.author.guild_permissions.administrator and not any(r.id == cargo_autorizado for r in ctx.author.roles):
+    cargo_autorizado = cargo_autorizado_mensagem.get(guild_id)
+    
+    # Checagem se o autor tem permissão para usar
+    if not ctx.author.guild_permissions.administrator and (cargo_autorizado not in [r.id for r in ctx.author.roles]):
         await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
         return
 
-
+    # Carregar cargos para a seleção de menção
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
     options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
@@ -479,12 +485,14 @@ async def mensagem(ctx):
         async def callback(self, interaction: discord.Interaction):
             mencao_id = self.values[0]
 
+            # Agora depois de escolher a menção, vamos escolher o tipo de mensagem
+            tipos = [
+                SelectOption(label=tipo.replace('_', ' ').title(), value=tipo, emoji=info.get("emoji", "📝"))
+                for tipo, info in tipos_mensagem.items()
+            ]
+
             class EscolherTipoMensagem(Select):
                 def __init__(self):
-                    tipos = [
-                        SelectOption(label=tipo.replace('_', ' ').title(), value=tipo, emoji=info.get("emoji", "📝"))
-                        for tipo, info in tipos_mensagem.items()
-                    ]
                     super().__init__(placeholder="Selecione o tipo da mensagem", options=tipos)
 
                 async def callback(self, interaction_tipo: discord.Interaction):
@@ -526,12 +534,10 @@ async def mensagem(ctx):
 
             view_tipo = View(timeout=60)
             view_tipo.add_item(EscolherTipoMensagem())
-            await interaction.message.delete()
             await interaction.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
 
     view = View(timeout=60)
     view.add_item(EscolherMencao())
-
     await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view)
 
 
