@@ -368,15 +368,20 @@ async def tipos(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def adicionarmensagem(ctx):
+    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
+        return
+
     class AdicionarRoleSelect(Select):
         def __init__(self):
-            roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-            options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
-            super().__init__(placeholder="Selecione o cargo para permitir o uso do !mensagem", options=options)
+            super().__init__(placeholder="Selecione o cargo para autorizar o uso do !mensagem", options=options)
 
         async def callback(self, interaction: discord.Interaction):
-            role_id = int(self.values[0])
             guild_id = str(interaction.guild.id)
+            role_id = int(self.values[0])
 
             if guild_id not in mensagem_roles:
                 mensagem_roles[guild_id] = []
@@ -384,26 +389,14 @@ async def adicionarmensagem(ctx):
             if role_id not in mensagem_roles[guild_id]:
                 mensagem_roles[guild_id].append(role_id)
                 salvar_dados()
-                await interaction.response.send_message(f"✅ Cargo autorizado a usar `!mensagem`!", ephemeral=True)
+                await interaction.response.send_message(f"✅ Cargo autorizado a usar o `!mensagem`.", ephemeral=True)
             else:
                 await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
 
-    # Botão para abrir o seletor
-    class AdicionarRoleButton(Button):
-        def __init__(self):
-            super().__init__(label="➕ Autorizar Cargo", style=discord.ButtonStyle.success)
-
-        async def callback(self, interaction: discord.Interaction):
-            view = View(timeout=60)
-            view.add_item(AdicionarRoleSelect())
-            await interaction.response.send_message("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view, ephemeral=True)
-
-    # Aqui cria o primeiro botão
     view = View(timeout=60)
-    view.add_item(AdicionarRoleButton())
+    view.add_item(AdicionarRoleSelect())
 
-    await ctx.send("🔹 Clique no botão para adicionar quem pode usar o comando `!mensagem`:", view=view)
-
+    await ctx.send("📋 Selecione o cargo que poderá usar o `!mensagem`:", view=view)
 
 
 @bot.command()
@@ -499,14 +492,13 @@ async def apagatipo(ctx):
 
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def mensagem(ctx):
     guild_id = str(ctx.guild.id)
     user_roles = [r.id for r in ctx.author.roles]
 
     autorizados = mensagem_roles.get(guild_id, [])
 
-    if not any(role in autorizados for role in user_roles) and not ctx.author.guild_permissions.administrator:
+    if not ctx.author.guild_permissions.administrator and not any(role in autorizados for role in user_roles):
         await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
         return
 
@@ -562,7 +554,7 @@ async def mensagem(ctx):
 
                             await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
 
-                            # Agora, DEPOIS de enviar, apaga o comando !mensagem
+                            # Apagar o comando só DEPOIS
                             try:
                                 await ctx.message.delete()
                             except discord.errors.NotFound:
@@ -573,13 +565,15 @@ async def mensagem(ctx):
 
             view_tipo = View(timeout=60)
             view_tipo.add_item(TipoMensagemSelect())
+
             await interaction_mention.message.delete()
             await interaction_mention.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
 
+    # CRIA o menu depois da classe
     view_mention = View(timeout=60)
     view_mention.add_item(EscolherMencao())
 
-    mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
+    await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
 
 
 
