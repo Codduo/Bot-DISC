@@ -6,6 +6,7 @@ from math import ceil
 import asyncio
 from datetime import datetime
 
+
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
@@ -22,6 +23,32 @@ test_channels = {}  # guild_id: canal para mensagens de teste
 
 import json
 import os
+
+
+# Carregar Tipos de Mensagem
+tipos_mensagem = {}
+
+def carregar_tipos_mensagem():
+    global tipos_mensagem
+    if os.path.exists("tipos_mensagem.json"):
+        with open("tipos_mensagem.json", "r", encoding="utf-8") as f:
+            tipos_mensagem = json.load(f)
+    else:
+        tipos_mensagem = {
+            "aviso": {"emoji": "⚠️", "cor": "#f1c40f"},
+            "informacao": {"emoji": "ℹ️", "cor": "#3498db"},
+            "aviso_importante": {"emoji": "🚨", "cor": "#e74c3c"},
+            "desligamento": {"emoji": "🏴", "cor": "#7f8c8d"},
+            "contratacao": {"emoji": "🟢", "cor": "#2ecc71"}
+        }
+        salvar_tipos_mensagem()
+
+def salvar_tipos_mensagem():
+    with open("tipos_mensagem.json", "w", encoding="utf-8") as f:
+        json.dump(tipos_mensagem, f, indent=4, ensure_ascii=False)
+
+
+
 
 def salvar_dados():
     dados = {
@@ -305,11 +332,8 @@ async def mensagem(ctx):
     class TipoMensagemSelect(Select):
         def __init__(self):
             options = [
-                SelectOption(label="Aviso", value="aviso", emoji="⚠️"),
-                SelectOption(label="Informação", value="informacao", emoji="ℹ️"),
-                SelectOption(label="Aviso Importante", value="aviso_importante", emoji="🚨"),
-                SelectOption(label="Desligamento", value="desligamento", emoji="🏴"),
-                SelectOption(label="Contratação", value="contratacao", emoji="🟢")
+                SelectOption(label=tipo.capitalize(), value=tipo, emoji=info.get("emoji", "📝"))
+                for tipo, info in tipos_mensagem.items()
             ]
             super().__init__(placeholder="Selecione o tipo da mensagem", options=options)
 
@@ -318,29 +342,25 @@ async def mensagem(ctx):
 
             class MensagemModal(Modal, title="Digite a Mensagem"):
                 conteudo = TextInput(label="Mensagem", placeholder="Digite aqui o conteúdo da mensagem...", style=discord.TextStyle.paragraph)
+                imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
 
                 async def on_submit(self, interaction_modal: discord.Interaction):
-                    cores = {
-                        "aviso": discord.Color.gold(),
-                        "informacao": discord.Color.blue(),
-                        "aviso_importante": discord.Color.red(),
-                        "desligamento": discord.Color.dark_grey(),
-                        "contratacao": discord.Color.green()
-                    }
-                    titulos = {
-                        "aviso": "⚠️ Aviso",
-                        "informacao": "ℹ️ Informação",
-                        "aviso_importante": "🚨 AVISO IMPORTANTE",
-                        "desligamento": "🏴 Desligamento",
-                        "contratacao": "🟢 Contratação"
-                    }
+                    info = tipos_mensagem.get(tipo)
+                    if not info:
+                        await interaction_modal.response.send_message("❌ Tipo de mensagem inválido.", ephemeral=True)
+                        return
+
+                    cor = int(info.get("cor", "#3498db").replace("#", ""), 16)
 
                     embed = discord.Embed(
-                        title=titulos[tipo],
+                        title=f"{info.get('emoji', '')} {tipo.replace('_', ' ').title()}",
                         description=self.conteudo.value,
-                        color=cores[tipo]
+                        color=cor
                     )
                     embed.timestamp = datetime.utcnow()
+
+                    if self.imagem_url.value:
+                        embed.set_image(url=self.imagem_url.value)
 
                     await interaction_modal.channel.send(embed=embed)
                     await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
@@ -353,8 +373,6 @@ async def mensagem(ctx):
             self.add_item(TipoMensagemSelect())
 
     await ctx.send("📨 Escolha o tipo de mensagem que deseja enviar:", view=TipoMensagemView())
-
-
 
 
 @bot.command()
@@ -404,7 +422,8 @@ async def on_guild_remove(guild):
 from dotenv import load_dotenv
 
 load_dotenv()
-carregar_dados()  # <<< ADICIONE ESTA LINHA AQUI
+carregar_dados() 
+carregar_tipos_mensagem()  
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
