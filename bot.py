@@ -371,13 +371,17 @@ async def adicionarmensagem(ctx):
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
 
+    if not options:
+        await ctx.send("⚠️ Não há cargos disponíveis para configurar permissão.")
+        return
+
     class AdicionarRoleSelect(Select):
         def __init__(self):
             super().__init__(placeholder="Selecione um cargo para permitir usar !mensagem", options=options)
 
-        async def callback(self, interaction):
+        async def callback(self, interaction: discord.Interaction):
             role_id = int(self.values[0])
-            guild_id = str(ctx.guild.id)
+            guild_id = str(interaction.guild.id)
 
             if guild_id not in mensagem_roles:
                 mensagem_roles[guild_id] = []
@@ -385,13 +389,20 @@ async def adicionarmensagem(ctx):
             if role_id not in mensagem_roles[guild_id]:
                 mensagem_roles[guild_id].append(role_id)
                 salvar_dados()
-                await interaction.response.send_message(f"✅ Cargo autorizado a usar !mensagem.", ephemeral=True)
+                await interaction.response.send_message(f"✅ Cargo autorizado a usar `!mensagem`.", ephemeral=True)
             else:
                 await interaction.response.send_message(f"⚠️ Este cargo já está autorizado.", ephemeral=True)
 
-    view = View()
-    view.add_item(AdicionarRoleSelect())
-    await ctx.send("📋 Selecione o cargo que poderá usar o comando !mensagem:", view=view)
+    class AdicionarRoleView(View):
+        def __init__(self):
+            super().__init__(timeout=60)
+            self.add_item(AdicionarRoleSelect())
+
+    await ctx.send(
+        "📋 Selecione o cargo que poderá usar o comando `!mensagem`:",
+        view=AdicionarRoleView()
+    )
+
 
 
 @bot.command()
@@ -502,6 +513,8 @@ async def mensagem(ctx):
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
     options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
+    mensagem_cmd = await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=None)  # Cria a base
+
     class EscolherMencao(Select):
         def __init__(self):
             super().__init__(placeholder="Selecione quem será mencionado na mensagem", options=options)
@@ -550,20 +563,24 @@ async def mensagem(ctx):
 
                             await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
 
-                    await interaction_tipo.message.delete()  # Apaga o seletor de tipo
+                            # ✅ Agora, depois que mandou, APAGA a mensagem original (o comando !mensagem)
+                            try:
+                                await ctx.message.delete()
+                            except discord.errors.NotFound:
+                                pass  # Se já tiver sido apagado
+
+                    await interaction_tipo.message.delete()
                     await interaction_tipo.response.send_modal(MensagemModal())
 
             view_tipo = View(timeout=60)
             view_tipo.add_item(TipoMensagemSelect())
-            await interaction_mention.message.delete()  # Apaga o seletor de mencao
+            await interaction_mention.message.delete()
             await interaction_mention.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
 
     view_mention = View(timeout=60)
     view_mention.add_item(EscolherMencao())
 
-    await ctx.message.delete()  # Apaga o comando !mensagem
-    await ctx.send("🔔 Selecione quem será mencionado na mensagem:", view=view_mention)
-
+    await mensagem_cmd.edit(view=view_mention)
 
 
 @bot.command(name="ajuda")
@@ -577,14 +594,17 @@ async def ajuda(ctx):
     embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
     embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
-    embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, texto e imagem.", inline=False)
+    embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, imagem e menção.", inline=False)
+    embed.add_field(name="!adicionarmensagem", value="Autoriza um cargo a usar o comando !mensagem.", inline=False)
+    embed.add_field(name="!removermensagem", value="Remove a autorização de um cargo para o !mensagem.", inline=False)
     embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
-    embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para usar no !mensagem.", inline=False)
+    embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para o !mensagem.", inline=False)
     embed.add_field(name="!apagatipo", value="Apaga um tipo de mensagem cadastrado.", inline=False)
-    embed.add_field(name="!ajuda", value="Mostra esta mensagem de ajuda com todos os comandos disponíveis.", inline=False)
-    embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping atual.", inline=False)
+    embed.add_field(name="!ajuda", value="Mostra esta lista de comandos disponíveis.", inline=False)
+    embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
 
     await ctx.send(embed=embed)
+
 
 
 
