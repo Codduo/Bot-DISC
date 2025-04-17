@@ -506,6 +506,7 @@ async def mensagem(ctx):
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles]
     options.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
 
+    # --- AQUI define a classe PRIMEIRO
     class EscolherMencao(Select):
         def __init__(self):
             super().__init__(placeholder="Selecione quem será mencionado na mensagem", options=options)
@@ -554,7 +555,6 @@ async def mensagem(ctx):
 
                             await interaction_modal.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
 
-                            # Apagar o comando só DEPOIS
                             try:
                                 await ctx.message.delete()
                             except discord.errors.NotFound:
@@ -565,11 +565,10 @@ async def mensagem(ctx):
 
             view_tipo = View(timeout=60)
             view_tipo.add_item(TipoMensagemSelect())
-
             await interaction_mention.message.delete()
             await interaction_mention.response.send_message("📨 Agora, selecione o tipo da mensagem:", view=view_tipo)
 
-    # CRIA o menu depois da classe
+    # --- AQUI cria a view DEPOIS de definir a classe
     view_mention = View(timeout=60)
     view_mention.add_item(EscolherMencao())
 
