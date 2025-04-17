@@ -213,6 +213,13 @@ class TicketButtonView(View):
         super().__init__(timeout=None)
         self.add_item(TicketButton())
 
+#comando de ping
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send(f"🏓 Pong! Latência: `{round(bot.latency * 1000)}ms`")
+
+
 # Comando: configura o canal onde os tickets serão enviados
 @bot.command()
 @commands.has_permissions(administrator=True)
