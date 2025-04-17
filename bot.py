@@ -302,6 +302,11 @@ async def clear(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def mensagem(ctx):
+    try:
+        await ctx.message.delete()  # Deleta o comando !mensagem enviado
+    except discord.Forbidden:
+        pass  # Se não puder apagar, continua assim mesmo
+
     class MensagemModal(Modal, title="Enviar Mensagem"):
         conteudo = TextInput(label="Mensagem", placeholder="Digite o texto que será enviado...", style=discord.TextStyle.paragraph)
         imagem_url = TextInput(label="URL da Imagem (opcional)", placeholder="Cole o link direto da imagem...", required=False)
@@ -317,10 +322,21 @@ async def mensagem(ctx):
             if self.imagem_url.value:
                 embed.set_image(url=self.imagem_url.value)
 
-            await ctx.channel.send(embed=embed)
+            await interaction.channel.send(embed=embed)
             await interaction.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
 
-    await ctx.send_modal(MensagemModal())
+    class MensagemButton(Button):
+        def __init__(self):
+            super().__init__(label="📝 Clique aqui para escrever sua mensagem", style=discord.ButtonStyle.primary)
+
+        async def callback(self, interaction: discord.Interaction):
+            await interaction.response.send_modal(MensagemModal())
+
+    view = View()
+    view.add_item(MensagemButton())
+
+    await ctx.send(view=view)
+
 
 
 
