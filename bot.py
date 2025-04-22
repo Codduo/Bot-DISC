@@ -181,48 +181,70 @@ def extrair_valor(texto, campo):
     except ValueError:
         return "Desconhecido"
 
+def extrair_data(texto):
+    try:
+        inicio = texto.index('audit(') + 6
+        fim = texto.index(':', inicio)
+        timestamp = float(texto[inicio:fim])
+        dt = datetime.fromtimestamp(timestamp)
+        return dt.strftime('%d/%m/%Y %Hh%Mmin%Ss')
+    except Exception:
+        return "Data desconhecida"
 
 
 async def monitorar_audit_log():
     await bot.wait_until_ready()
     canal = bot.get_channel(SEU_CANAL_ID)
-
     path_log = '/var/log/audit/audit.log'
 
     with open(path_log, 'r') as f:
         f.seek(0, os.SEEK_END)
 
+        buffer_evento = ""
+
         while True:
             linha = f.readline()
-            if linha and 'pasta_dados' in linha:
-                usuario = extrair_valor(linha, 'UID')
-                syscall = extrair_valor(linha, 'SYSCALL')
-                data_hora = extrair_data(linha)
+            if not linha:
+                await asyncio.sleep(0.5)
+                continue
 
-                if syscall in ['openat', 'renameat', 'unlinkat']:
-                    if syscall == 'openat':
-                        # aguarda 1s para evitar flood de criação
-                        await asyncio.sleep(1)
+            buffer_evento += linha
 
-                    if syscall == 'openat':
-                        alteracao = "Criou um arquivo"
-                    elif syscall == 'renameat':
-                        alteracao = "Renomeou ou moveu um arquivo"
-                    elif syscall == 'unlinkat':
-                        alteracao = "Deletou um arquivo"
-                    else:
-                        alteracao = "Realizou alteração"
+            if linha.strip() == "" or linha.startswith("type="):
+                # Continua juntando se ainda não terminou o evento
+                continue
 
-                    mensagem = f"📄 **Usuário:** {usuario}\n" \
-                               f"🛠 **Alteração:** {alteracao}\n" \
-                               f"🕒 **Data:** {data_hora}"
+            if 'pasta_dados' not in buffer_evento:
+                buffer_evento = ""
+                continue
 
-                    await canal.send(mensagem)
+            usuario = extrair_valor(buffer_evento, 'UID')
+            syscall = extrair_valor(buffer_evento, 'SYSCALL')
+            data_hora = extrair_data(buffer_evento)
 
-            else:
-                await asyncio.sleep(1)
+            if syscall in ['openat', 'unlinkat', 'renameat', 'setxattr']:
+                if syscall == 'openat' and 'O_CREAT' not in buffer_evento:
+                    buffer_evento = ""
+                    continue  # Ignora openat sem criação
 
+                if syscall == 'openat':
+                    alteracao = "📝 Criou um arquivo"
+                elif syscall == 'unlinkat':
+                    alteracao = "🗑️ Deletou um arquivo"
+                elif syscall == 'renameat':
+                    alteracao = "✏️ Renomeou ou moveu um arquivo"
+                elif syscall == 'setxattr':
+                    alteracao = "⚙️ Alterou atributos de um arquivo"
+                else:
+                    alteracao = "❓ Alteração desconhecida"
 
+                mensagem = f"📄 **Usuário:** {usuario}\n" \
+                           f"🛠 **Alteração:** {alteracao}\n" \
+                           f"🕒 **Data:** {data_hora}"
+
+                await canal.send(mensagem)
+
+            buffer_evento = ""  # Limpa o buffer para próximo evento
 
 
 # Comando: define o cargo a ser mencionado nos tickets
