@@ -50,6 +50,40 @@ logger.setLevel(logging.INFO)  # Pode ajustar para DEBUG se quiser ver ainda mai
 
 
 
+CAMINHO_PASTA = "/srv/dados"
+
+# Inicializa o conjunto de arquivos anteriores
+arquivos_anteriores = set()
+
+async def monitorar_pasta():
+    global arquivos_anteriores
+
+    # No começo, captura todos os arquivos que já existem
+    arquivos_anteriores = set(os.listdir(CAMINHO_PASTA))
+
+    while True:
+        await asyncio.sleep(5)  # Espera 5 segundos entre cada varredura
+
+        arquivos_atuais = set(os.listdir(CAMINHO_PASTA))
+        novos_arquivos = arquivos_atuais - arquivos_anteriores
+
+        if novos_arquivos:
+            for arquivo in novos_arquivos:
+                print(f"Novo arquivo detectado: {arquivo}")
+                # Aqui você pode mandar a mensagem para o Discord
+                canal = bot.get_channel(ID_DO_CANAL)  # Coloque o ID do seu canal aqui
+                if canal:
+                    await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
+
+        arquivos_anteriores = arquivos_atuais
+
+# Agora no seu bot, inicie essa tarefa quando ele estiver pronto
+@bot.event
+async def on_ready():
+    print(f"Bot conectado como {bot.user}")
+    bot.loop.create_task(monitorar_pasta())
+
+
 def traduzir_uid(uid):
     try:
         return pwd.getpwuid(int(uid)).pw_name
@@ -88,6 +122,7 @@ def carregar_tipos_mensagem():
 def salvar_tipos_mensagem():
     with open("tipos_mensagem.json", "w", encoding="utf-8") as f:
         json.dump(tipos_mensagem, f, indent=4, ensure_ascii=False)
+
 
 
 
