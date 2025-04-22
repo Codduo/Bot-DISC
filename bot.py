@@ -57,6 +57,24 @@ CAMINHO_PASTA = "/srv/dados"
 # Inicializa o conjunto de arquivos anteriores
 arquivos_anteriores = set()
 
+TEMPO_ESPERA_CONFIRMACAO = 15  # segundos (pode ajustar)
+
+async def confirmar_estabilidade(arquivo):
+    """Espera alguns segundos e confirma se o arquivo parou de ser modificado."""
+    try:
+        mod_time_inicial = os.stat(arquivo).st_mtime
+    except FileNotFoundError:
+        return False  # Arquivo já foi removido
+
+    await asyncio.sleep(TEMPO_ESPERA_CONFIRMACAO)
+
+    try:
+        mod_time_final = os.stat(arquivo).st_mtime
+    except FileNotFoundError:
+        return False
+
+    return mod_time_inicial == mod_time_final
+
 async def monitorar_pasta():
     global arquivos_anteriores
 
@@ -106,7 +124,10 @@ async def monitorar_pasta():
                     )
 
                 if canal:
-                    await canal.send(mensagem)
+                    if await confirmar_estabilidade(arquivo):
+                        await canal.send(mensagem)
+                    else:
+                        print(f"⏳ Arquivo {arquivo} ainda instável, ignorado")
 
             # Detectar arquivos deletados
             arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
@@ -157,7 +178,6 @@ async def monitorar_pasta():
 
         except Exception as e:
             print(f"Erro ao monitorar a pasta: {e}")
-
 
 
 def traduzir_uid(uid):
