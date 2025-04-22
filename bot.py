@@ -70,11 +70,17 @@ async def monitorar_pasta():
         try:
             arquivos_atuais = set(os.listdir(CAMINHO_PASTA))
             novos_arquivos = arquivos_atuais - arquivos_anteriores
+            removidos = arquivos_anteriores - arquivos_atuais
+
+            canal = bot.get_channel(SEU_CANAL_ID)
 
             if novos_arquivos:
                 for arquivo in novos_arquivos:
+                    # Filtro para ignorar arquivos temporários
+                    if arquivo.lower().startswith('novo') or arquivo.endswith('.tmp'):
+                        continue
+
                     print(f"📂 Novo arquivo detectado: {arquivo}")
-                    canal = bot.get_channel(SEU_CANAL_ID)
                     if canal:
                         try:
                             await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
@@ -82,13 +88,21 @@ async def monitorar_pasta():
                         except Exception as erro_envio:
                             print(f"❌ Erro ao enviar mensagem para o canal: {erro_envio}")
                     else:
-                        print("❌ Canal não encontrado! Verifique se o ID do canal está correto.")
+                        print("❌ Canal não encontrado! Verifique o ID.")
+
+            if removidos:
+                for arquivo in removidos:
+                    print(f"🗑️ Arquivo removido: {arquivo}")
+                    if canal:
+                        try:
+                            await canal.send(f"🗑️ Arquivo removido: `{arquivo}`")
+                        except Exception as erro_envio:
+                            print(f"❌ Erro ao enviar mensagem de remoção: {erro_envio}")
 
             arquivos_anteriores = arquivos_atuais
 
         except Exception as e:
             print(f"Erro ao monitorar a pasta: {e}")
-
 
 
 def traduzir_uid(uid):
