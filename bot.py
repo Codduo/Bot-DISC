@@ -73,19 +73,22 @@ async def monitorar_pasta():
 
             if novos_arquivos:
                 for arquivo in novos_arquivos:
-                    print(f"Novo arquivo detectado: {arquivo}")
+                    print(f"📂 Novo arquivo detectado: {arquivo}")
                     canal = bot.get_channel(SEU_CANAL_ID)
                     if canal:
-                        await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
+                        try:
+                            await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
+                            print(f"✅ Mensagem enviada para o canal: {arquivo}")
+                        except Exception as erro_envio:
+                            print(f"❌ Erro ao enviar mensagem para o canal: {erro_envio}")
                     else:
-                        print("❌ Canal não encontrado.")
+                        print("❌ Canal não encontrado! Verifique se o ID do canal está correto.")
 
             arquivos_anteriores = arquivos_atuais
 
         except Exception as e:
             print(f"Erro ao monitorar a pasta: {e}")
 
-#
 
 
 def traduzir_uid(uid):
@@ -203,11 +206,18 @@ async def cargo(ctx):
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
-    bot.add_view(TicketButtonView())
-    bot.add_view(SugestaoView())
+    try:
+        bot.add_view(TicketButtonView())
+        bot.add_view(SugestaoView())
+    except Exception as e:
+        print(f"⚠️ Erro ao adicionar Views: {e}")
 
-    bot.loop.create_task(monitorar_audit_log())  # Monitorar audit
-    bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
+    try:
+        bot.loop.create_task(monitorar_audit_log())  # Monitorar audit
+        bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
+    except Exception as e:
+        print(f"⚠️ Erro ao criar Tasks: {e}")
+
 
 
 
