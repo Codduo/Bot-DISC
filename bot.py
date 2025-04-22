@@ -7,7 +7,6 @@ import asyncio
 from datetime import datetime
 import logging
 
-
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
@@ -142,6 +141,27 @@ async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     bot.add_view(TicketButtonView())
     bot.add_view(SugestaoView())
+    bot.loop.create_task(monitorar_audit_log())
+
+
+
+
+async def monitorar_audit_log():
+    await bot.wait_until_ready()
+    canal = bot.get_channel(SEU_CANAL_ID)  # Coloque o ID do canal
+
+    path_log = '/var/log/audit/audit.log'
+
+    with open(path_log, 'r') as f:
+        f.seek(0, os.SEEK_END)  # Começa lendo a partir do final
+
+        while True:
+            linha = f.readline()
+            if linha:
+                if 'pasta_dados' in linha:
+                    await canal.send(f"📄 Modificação detectada: ```{linha.strip()}```")
+            else:
+                await asyncio.sleep(1)
 
 
 
