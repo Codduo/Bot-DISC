@@ -159,15 +159,58 @@ async def monitorar_audit_log():
     path_log = '/var/log/audit/audit.log'
 
     with open(path_log, 'r') as f:
-        f.seek(0, os.SEEK_END)  # Começa lendo a partir do final
+        f.seek(0, os.SEEK_END)
 
         while True:
             linha = f.readline()
             if linha:
                 if 'pasta_dados' in linha:
-                    await canal.send(f"📄 Modificação detectada: ```{linha.strip()}```")
+                    # Pegando info de maneira básica
+                    usuario = extrair_valor(linha, 'UID')
+                    acao = identificar_acao(linha)
+                    data_hora = extrair_data(linha)
+                    
+                    mensagem = f"📄 **Usuário:** {usuario}\n" \
+                               f"🛠 **Alteração:** {acao}\n" \
+                               f"🕒 **Data:** {data_hora}"
+                    
+                    await canal.send(mensagem)
             else:
                 await asyncio.sleep(1)
+
+def extrair_valor(texto, campo):
+    try:
+        # Exemplo: UID="bmzoperacional"
+        inicio = texto.index(f'{campo}="') + len(campo) + 2
+        fim = texto.index('"', inicio)
+        return texto[inicio:fim]
+    except ValueError:
+        return "Desconhecido"
+
+def identificar_acao(linha):
+    if "SYSCALL=unlinkat" in linha:
+        return "Deletou um arquivo"
+    elif "SYSCALL=renameat" in linha:
+        return "Renomeou/moveu um arquivo"
+    elif "SYSCALL=setxattr" in linha:
+        return "Alterou atributos de um arquivo"
+    elif "SYSCALL=openat" in linha:
+        return "Abriu/criou um arquivo"
+    else:
+        return "Realizou alteração"
+
+def extrair_data(texto):
+    try:
+        # Exemplo: audit(1745325387.028:305)
+        inicio = texto.index('audit(') + 6
+        fim = texto.index(':', inicio)
+        timestamp = float(texto[inicio:fim])
+        from datetime import datetime
+        dt = datetime.fromtimestamp(timestamp)
+        return dt.strftime('%d/%m/%Y %Hh%Mmin%Ss')
+    except:
+        return "Data desconhecida"
+
 
 
 
