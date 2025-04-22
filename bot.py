@@ -246,13 +246,16 @@ async def on_ready():
 def extrair_valor(texto, campo):
     try:
         inicio = texto.index(f'{campo}=') + len(campo) + 1
-        fim = texto.index(' ', inicio)
-        valor = texto[inicio:fim].replace('"', '')
+        fim = texto.find(' ', inicio)
+        if fim == -1:
+            fim = len(texto)
+        valor = texto[inicio:fim].strip('"')
         if valor == "unset":
             return "Usuário não autenticado"
         return valor
     except ValueError:
         return "Desconhecido"
+
 
 def extrair_data(texto):
     try:
@@ -282,6 +285,7 @@ async def monitorar_audit_log():
 
             buffer_evento += linha
 
+            # Continua juntando linhas até formar o evento completo
             if linha.strip() == "" or linha.startswith("type="):
                 continue
 
@@ -290,34 +294,35 @@ async def monitorar_audit_log():
                 continue
 
             usuario_id = extrair_valor(buffer_evento, 'UID')
-            usuario = traduzir_uid(usuario_id)
+            usuario_nome = traduzir_uid(usuario_id)
             syscall = extrair_valor(buffer_evento, 'SYSCALL')
-            caminho = extrair_valor(buffer_evento, 'name')
+            arquivo = extrair_valor(buffer_evento, 'name')
             data_hora = extrair_data(buffer_evento)
 
+            # Determina o tipo de alteração
             if syscall == 'openat' and 'O_CREAT' in buffer_evento:
-                acao = "Criou"
+                alteracao = "Criou"
             elif syscall == 'unlinkat':
-                acao = "Deletou"
+                alteracao = "Deletou"
             elif syscall == 'renameat':
-                acao = "Renomeou/Moveu"
+                alteracao = "Renomeou/Moveu"
             elif syscall == 'setxattr':
-                acao = "Alterou"
+                alteracao = "Alterou"
             else:
                 buffer_evento = ""
-                continue
+                continue  # Pula syscalls que não nos interessam
 
+            # Monta a mensagem no formato padrão
             mensagem = (
-                f"📄 **Usuário:** {usuario}\n"
-                f"🛠 **Alteração:** {acao} o arquivo `{caminho}`\n"
+                f"📄 **Usuário:** {usuario_nome}\n"
+                f"🛠 **Alteração:** {alteracao} `{arquivo}`\n"
                 f"🕒 **Data:** {data_hora}"
             )
 
             if canal:
                 await canal.send(mensagem)
 
-            buffer_evento = ""
-
+            buffer_evento = ""  # Limpa o buffer para o próximo evento
 
 
 # Comando: define o cargo a ser mencionado nos tickets
