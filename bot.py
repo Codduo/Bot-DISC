@@ -58,51 +58,59 @@ arquivos_anteriores = set()
 async def monitorar_pasta():
     global arquivos_anteriores
 
+    def mapear_arquivos():
+        arquivos = {}
+        for raiz, _, arquivos_encontrados in os.walk(CAMINHO_PASTA):
+            for nome in arquivos_encontrados:
+                caminho = os.path.join(raiz, nome)
+                try:
+                    arquivos[caminho] = os.stat(caminho).st_mtime
+                except FileNotFoundError:
+                    continue  # Pode ocorrer se o arquivo for deletado enquanto mapeia
+        return arquivos
+
     try:
-        arquivos_anteriores = set(os.listdir(CAMINHO_PASTA))
+        arquivos_anteriores = mapear_arquivos()
     except Exception as e:
         print(f"Erro inicial ao listar arquivos: {e}")
         return
+
+    await bot.wait_until_ready()
+    canal = bot.get_channel(SEU_CANAL_ID)
 
     while True:
         await asyncio.sleep(5)
 
         try:
-            arquivos_atuais = set(os.listdir(CAMINHO_PASTA))
-            novos_arquivos = arquivos_atuais - arquivos_anteriores
-            removidos = arquivos_anteriores - arquivos_atuais
+            arquivos_atuais = mapear_arquivos()
 
-            canal = bot.get_channel(SEU_CANAL_ID)
+            # Detectar novos arquivos
+            novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
+            for arquivo in novos_arquivos:
+                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                if canal:
+                    await canal.send(f"📂 **Novo arquivo criado:** `{nome_arquivo}`")
 
-            if novos_arquivos:
-                for arquivo in novos_arquivos:
-                    # Filtro para ignorar arquivos temporários
-                    if arquivo.lower().startswith('novo') or arquivo.endswith('.tmp'):
-                        continue
+            # Detectar arquivos deletados
+            arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
+            for arquivo in arquivos_removidos:
+                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                if canal:
+                    await canal.send(f"🗑️ **Arquivo removido:** `{nome_arquivo}`")
 
-                    print(f"📂 Novo arquivo detectado: {arquivo}")
+            # Detectar arquivos modificados
+            arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
+            for arquivo in arquivos_comuns:
+                if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
+                    nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
                     if canal:
-                        try:
-                            await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
-                            print(f"✅ Mensagem enviada para o canal: {arquivo}")
-                        except Exception as erro_envio:
-                            print(f"❌ Erro ao enviar mensagem para o canal: {erro_envio}")
-                    else:
-                        print("❌ Canal não encontrado! Verifique o ID.")
-
-            if removidos:
-                for arquivo in removidos:
-                    print(f"🗑️ Arquivo removido: {arquivo}")
-                    if canal:
-                        try:
-                            await canal.send(f"🗑️ Arquivo removido: `{arquivo}`")
-                        except Exception as erro_envio:
-                            print(f"❌ Erro ao enviar mensagem de remoção: {erro_envio}")
+                        await canal.send(f"📝 **Arquivo alterado:** `{nome_arquivo}`")
 
             arquivos_anteriores = arquivos_atuais
 
         except Exception as e:
             print(f"Erro ao monitorar a pasta: {e}")
+
 
 
 def traduzir_uid(uid):
@@ -264,7 +272,6 @@ async def monitorar_audit_log():
 
     with open(path_log, 'r') as f:
         f.seek(0, os.SEEK_END)
-
         buffer_evento = ""
 
         while True:
@@ -276,40 +283,41 @@ async def monitorar_audit_log():
             buffer_evento += linha
 
             if linha.strip() == "" or linha.startswith("type="):
-                # Continua juntando se ainda não terminou o evento
                 continue
 
             if 'pasta_dados' not in buffer_evento:
                 buffer_evento = ""
                 continue
 
-            usuario = extrair_valor(buffer_evento, 'UID')
+            usuario_id = extrair_valor(buffer_evento, 'UID')
+            usuario = traduzir_uid(usuario_id)
             syscall = extrair_valor(buffer_evento, 'SYSCALL')
+            caminho = extrair_valor(buffer_evento, 'name')
             data_hora = extrair_data(buffer_evento)
 
-            if syscall in ['openat', 'unlinkat', 'renameat', 'setxattr']:
-                if syscall == 'openat' and 'O_CREAT' not in buffer_evento:
-                    buffer_evento = ""
-                    continue  # Ignora openat sem criação
+            if syscall == 'openat' and 'O_CREAT' in buffer_evento:
+                acao = "Criou"
+            elif syscall == 'unlinkat':
+                acao = "Deletou"
+            elif syscall == 'renameat':
+                acao = "Renomeou/Moveu"
+            elif syscall == 'setxattr':
+                acao = "Alterou"
+            else:
+                buffer_evento = ""
+                continue
 
-                if syscall == 'openat':
-                    alteracao = "📝 Criou um arquivo"
-                elif syscall == 'unlinkat':
-                    alteracao = "🗑️ Deletou um arquivo"
-                elif syscall == 'renameat':
-                    alteracao = "✏️ Renomeou ou moveu um arquivo"
-                elif syscall == 'setxattr':
-                    alteracao = "⚙️ Alterou atributos de um arquivo"
-                else:
-                    alteracao = "❓ Alteração desconhecida"
+            mensagem = (
+                f"📄 **Usuário:** {usuario}\n"
+                f"🛠 **Alteração:** {acao} o arquivo `{caminho}`\n"
+                f"🕒 **Data:** {data_hora}"
+            )
 
-                mensagem = f"📄 **Usuário:** {usuario}\n" \
-                           f"🛠 **Alteração:** {alteracao}\n" \
-                           f"🕒 **Data:** {data_hora}"
-
+            if canal:
                 await canal.send(mensagem)
 
-            buffer_evento = ""  # Limpa o buffer para próximo evento
+            buffer_evento = ""
+
 
 
 # Comando: define o cargo a ser mencionado nos tickets
