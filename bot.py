@@ -6,6 +6,8 @@ from math import ceil
 import asyncio
 from datetime import datetime
 import logging
+import pwd
+
 
 
 # ID do canal onde os LOGS de arquivos serão enviados
@@ -45,6 +47,24 @@ logging.basicConfig(
 # Substitui o print padrão do discord.py por logging
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)  # Pode ajustar para DEBUG se quiser ver ainda mais detalhes
+
+
+
+def traduzir_uid(uid):
+    try:
+        return pwd.getpwuid(int(uid)).pw_name
+    except:
+        return "Desconhecido"
+
+def interpretar_syscall(linha):
+    if 'SYSCALL=openat' in linha and 'O_CREAT' in linha:
+        return "Criou um arquivo"
+    elif 'SYSCALL=unlinkat' in linha:
+        return "Deletou um arquivo"
+    elif 'SYSCALL=renameat' in linha:
+        return "Renomeou/moveu um arquivo"
+    else:
+        return None
 
 
 # Carregar Tipos de Mensagem
@@ -150,11 +170,22 @@ async def on_ready():
     bot.loop.create_task(monitorar_audit_log())
 
 
+def extrair_valor(texto, campo):
+    try:
+        inicio = texto.index(f'{campo}=') + len(campo) + 1
+        fim = texto.index(' ', inicio)
+        valor = texto[inicio:fim].replace('"', '')
+        if valor == "unset":
+            return "Usuário não autenticado"
+        return valor
+    except ValueError:
+        return "Desconhecido"
+
 
 
 async def monitorar_audit_log():
     await bot.wait_until_ready()
-    canal = bot.get_channel(SEU_CANAL_ID) 
+    canal = bot.get_channel(SEU_CANAL_ID)
 
     path_log = '/var/log/audit/audit.log'
 
@@ -163,53 +194,33 @@ async def monitorar_audit_log():
 
         while True:
             linha = f.readline()
-            if linha:
-                if 'pasta_dados' in linha:
-                    # Pegando info de maneira básica
-                    usuario = extrair_valor(linha, 'UID')
-                    acao = identificar_acao(linha)
-                    data_hora = extrair_data(linha)
-                    
+            if linha and 'pasta_dados' in linha:
+                usuario = extrair_valor(linha, 'UID')
+                syscall = extrair_valor(linha, 'SYSCALL')
+                data_hora = extrair_data(linha)
+
+                if syscall in ['openat', 'renameat', 'unlinkat']:
+                    if syscall == 'openat':
+                        # aguarda 1s para evitar flood de criação
+                        await asyncio.sleep(1)
+
+                    if syscall == 'openat':
+                        alteracao = "Criou um arquivo"
+                    elif syscall == 'renameat':
+                        alteracao = "Renomeou ou moveu um arquivo"
+                    elif syscall == 'unlinkat':
+                        alteracao = "Deletou um arquivo"
+                    else:
+                        alteracao = "Realizou alteração"
+
                     mensagem = f"📄 **Usuário:** {usuario}\n" \
-                               f"🛠 **Alteração:** {acao}\n" \
+                               f"🛠 **Alteração:** {alteracao}\n" \
                                f"🕒 **Data:** {data_hora}"
-                    
+
                     await canal.send(mensagem)
+
             else:
                 await asyncio.sleep(1)
-
-def extrair_valor(texto, campo):
-    try:
-        # Exemplo: UID="bmzoperacional"
-        inicio = texto.index(f'{campo}="') + len(campo) + 2
-        fim = texto.index('"', inicio)
-        return texto[inicio:fim]
-    except ValueError:
-        return "Desconhecido"
-
-def identificar_acao(linha):
-    if "SYSCALL=unlinkat" in linha:
-        return "Deletou um arquivo"
-    elif "SYSCALL=renameat" in linha:
-        return "Renomeou/moveu um arquivo"
-    elif "SYSCALL=setxattr" in linha:
-        return "Alterou atributos de um arquivo"
-    elif "SYSCALL=openat" in linha:
-        return "Abriu/criou um arquivo"
-    else:
-        return "Realizou alteração"
-
-def extrair_data(texto):
-    try:
-        # Exemplo: audit(1745325387.028:305)
-        inicio = texto.index('audit(') + 6
-        fim = texto.index(':', inicio)
-        timestamp = float(texto[inicio:fim])
-        from datetime import datetime
-        dt = datetime.fromtimestamp(timestamp)
-        return dt.strftime('%d/%m/%Y %Hh%Mmin%Ss')
-    except:
-        return "Data desconhecida"
 
 
 
