@@ -29,6 +29,8 @@ sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 test_channels = {}  # guild_id: canal para mensagens de teste
 mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
 cargo_autorizado_mensagem = {}  # guild_id: [lista de role_ids]
+ultimos_eventos = {}
+
 
 
 
@@ -88,23 +90,68 @@ async def monitorar_pasta():
             novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
             for arquivo in novos_arquivos:
                 nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                if info_evento:
+                    mensagem = (
+                        f"📄 **Usuário:** {info_evento['usuario']}\n"
+                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                        f"🕒 **Data:** {info_evento['data']}"
+                    )
+                else:
+                    mensagem = (
+                        f"📄 **Usuário:** Desconhecido\n"
+                        f"🛠 **Alteração:** Criou `{nome_arquivo}`\n"
+                        f"🕒 **Data:** Desconhecida"
+                    )
+
                 if canal:
-                    await canal.send(f"📂 **Novo arquivo criado:** `{nome_arquivo}`")
+                    await canal.send(mensagem)
 
             # Detectar arquivos deletados
             arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
             for arquivo in arquivos_removidos:
                 nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                if info_evento:
+                    mensagem = (
+                        f"📄 **Usuário:** {info_evento['usuario']}\n"
+                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                        f"🕒 **Data:** {info_evento['data']}"
+                    )
+                else:
+                    mensagem = (
+                        f"📄 **Usuário:** Desconhecido\n"
+                        f"🛠 **Alteração:** Deletou `{nome_arquivo}`\n"
+                        f"🕒 **Data:** Desconhecida"
+                    )
+
                 if canal:
-                    await canal.send(f"🗑️ **Arquivo removido:** `{nome_arquivo}`")
+                    await canal.send(mensagem)
 
             # Detectar arquivos modificados
             arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
             for arquivo in arquivos_comuns:
                 if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
                     nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                    info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                    if info_evento:
+                        mensagem = (
+                            f"📄 **Usuário:** {info_evento['usuario']}\n"
+                            f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                            f"🕒 **Data:** {info_evento['data']}"
+                        )
+                    else:
+                        mensagem = (
+                            f"📄 **Usuário:** Desconhecido\n"
+                            f"🛠 **Alteração:** Alterou `{nome_arquivo}`\n"
+                            f"🕒 **Data:** Desconhecida"
+                        )
+
                     if canal:
-                        await canal.send(f"📝 **Arquivo alterado:** `{nome_arquivo}`")
+                        await canal.send(mensagem)
 
             arquivos_anteriores = arquivos_atuais
 
@@ -270,7 +317,6 @@ def extrair_data(texto):
 
 async def monitorar_audit_log():
     await bot.wait_until_ready()
-    canal = bot.get_channel(SEU_CANAL_ID)
     path_log = '/var/log/audit/audit.log'
 
     with open(path_log, 'r') as f:
@@ -312,17 +358,15 @@ async def monitorar_audit_log():
                 buffer_evento = ""
                 continue  # Pula syscalls que não nos interessam
 
-            # Monta a mensagem no formato padrão
-            mensagem = (
-                f"📄 **Usuário:** {usuario_nome}\n"
-                f"🛠 **Alteração:** {alteracao} `{arquivo}`\n"
-                f"🕒 **Data:** {data_hora}"
-            )
-
-            if canal:
-                await canal.send(mensagem)
+            # Armazena o evento no cache para o monitorar_pasta() usar
+            ultimos_eventos[arquivo] = {
+                "usuario": usuario_nome,
+                "acao": alteracao,
+                "data": data_hora
+            }
 
             buffer_evento = ""  # Limpa o buffer para o próximo evento
+
 
 
 # Comando: define o cargo a ser mencionado nos tickets
