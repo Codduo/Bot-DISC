@@ -58,24 +58,32 @@ arquivos_anteriores = set()
 async def monitorar_pasta():
     global arquivos_anteriores
 
-    # No começo, captura todos os arquivos que já existem
-    arquivos_anteriores = set(os.listdir(CAMINHO_PASTA))
+    try:
+        arquivos_anteriores = set(os.listdir(CAMINHO_PASTA))
+    except Exception as e:
+        print(f"Erro inicial ao listar arquivos: {e}")
+        return
 
     while True:
-        await asyncio.sleep(5)  # Espera 5 segundos entre cada varredura
+        await asyncio.sleep(5)
 
-        arquivos_atuais = set(os.listdir(CAMINHO_PASTA))
-        novos_arquivos = arquivos_atuais - arquivos_anteriores
+        try:
+            arquivos_atuais = set(os.listdir(CAMINHO_PASTA))
+            novos_arquivos = arquivos_atuais - arquivos_anteriores
 
-        if novos_arquivos:
-            for arquivo in novos_arquivos:
-                print(f"Novo arquivo detectado: {arquivo}")
-                # Aqui você pode mandar a mensagem para o Discord
-                canal = bot.get_channel(SEU_CANAL_ID)
-                if canal:
-                    await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
+            if novos_arquivos:
+                for arquivo in novos_arquivos:
+                    print(f"Novo arquivo detectado: {arquivo}")
+                    canal = bot.get_channel(SEU_CANAL_ID)
+                    if canal:
+                        await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
+                    else:
+                        print("❌ Canal não encontrado.")
 
-        arquivos_anteriores = arquivos_atuais
+            arquivos_anteriores = arquivos_atuais
+
+        except Exception as e:
+            print(f"Erro ao monitorar a pasta: {e}")
 
 #
 
