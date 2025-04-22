@@ -71,17 +71,13 @@ async def monitorar_pasta():
             for arquivo in novos_arquivos:
                 print(f"Novo arquivo detectado: {arquivo}")
                 # Aqui você pode mandar a mensagem para o Discord
-                canal = bot.get_channel(ID_DO_CANAL)  # Coloque o ID do seu canal aqui
+                canal = bot.get_channel(SEU_CANAL_ID)
                 if canal:
                     await canal.send(f"📂 Novo arquivo criado: `{arquivo}`")
 
         arquivos_anteriores = arquivos_atuais
 
-# Agora no seu bot, inicie essa tarefa quando ele estiver pronto
-@bot.event
-async def on_ready():
-    print(f"Bot conectado como {bot.user}")
-    bot.loop.create_task(monitorar_pasta())
+#
 
 
 def traduzir_uid(uid):
@@ -202,7 +198,9 @@ async def on_ready():
     bot.add_view(TicketButtonView())
     bot.add_view(SugestaoView())
 
-    bot.loop.create_task(monitorar_audit_log())
+    bot.loop.create_task(monitorar_audit_log())  # Monitorar audit
+    bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
+
 
 
 def extrair_valor(texto, campo):
