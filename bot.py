@@ -148,7 +148,7 @@ async def on_ready():
 
 async def monitorar_audit_log():
     await bot.wait_until_ready()
-    canal = bot.get_channel(SEU_CANAL_ID)  # Coloque o ID do canal
+    canal = bot.get_channel(SEU_CANAL_ID)  1364212031875453059
 
     path_log = '/var/log/audit/audit.log'
 
