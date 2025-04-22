@@ -340,7 +340,13 @@ async def monitorar_audit_log():
                 continue
 
             usuario_id = extrair_valor(buffer_evento, 'UID')
+
+            # >>>>>>> este if tem que estar indentado junto
+            if usuario_id in ("0", "unset", "Desconhecido"):
+                usuario_id = extrair_valor(buffer_evento, 'AUID')
+
             usuario_nome = traduzir_uid(usuario_id)
+
             syscall = extrair_valor(buffer_evento, 'SYSCALL')
             arquivo = extrair_valor(buffer_evento, 'name')
             data_hora = extrair_data(buffer_evento)
