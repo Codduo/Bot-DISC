@@ -179,6 +179,40 @@ async def monitorar_pasta():
         except Exception as e:
             print(f"Erro ao monitorar a pasta: {e}")
 
+async def interpretar_evento(evento: str):
+    if 'pasta_dados' not in evento:
+        return
+
+    usuario_id = extrair_valor(evento, 'UID')
+
+    if usuario_id in ("0", "unset", "Desconhecido"):
+        usuario_id = extrair_valor(evento, 'AUID')
+
+    usuario_nome = traduzir_uid(usuario_id)
+    syscall = extrair_valor(evento, 'SYSCALL')
+    arquivo = extrair_valor(evento, 'name')
+    data_hora = extrair_data(evento)
+
+    if not arquivo or arquivo == 'unknown':
+        return
+
+    # Determina o tipo de alteração
+    if syscall == 'openat' and 'O_CREAT' in evento:
+        alteracao = "Criou"
+    elif syscall == 'unlinkat':
+        alteracao = "Deletou"
+    elif syscall == 'renameat':
+        alteracao = "Renomeou/Moveu"
+    elif syscall == 'setxattr':
+        alteracao = "Alterou"
+    else:
+        return  # Ignora syscalls não relevantes
+
+    ultimos_eventos[arquivo] = {
+        "usuario": usuario_nome,
+        "acao": alteracao,
+        "data": data_hora
+    }
 
 def traduzir_uid(uid):
     try:
@@ -341,7 +375,8 @@ async def monitorar_audit_log():
 
     with open(path_log, 'r') as f:
         f.seek(0, os.SEEK_END)
-        buffer_evento = ""
+        evento_atual = ""
+        ultimo_audit_id = None
 
         while True:
             linha = f.readline()
@@ -349,49 +384,24 @@ async def monitorar_audit_log():
                 await asyncio.sleep(0.5)
                 continue
 
-            buffer_evento += linha
+            if 'type=SYSCALL' in linha:
+                # Nova linha de syscall. Verifica se é um novo evento (novo audit ID).
+                try:
+                    audit_inicio = linha.index('audit(') + 6
+                    audit_fim = linha.index(':', audit_inicio)
+                    audit_id = linha[audit_inicio:audit_fim]
+                except:
+                    audit_id = None
 
-            # Continua juntando linhas até formar o evento completo
-            if linha.strip() == "" or linha.startswith("type="):
-                continue
+                if audit_id != ultimo_audit_id and evento_atual:
+                    # Temos um evento completo para processar!
+                    await interpretar_evento(evento_atual)
+                    evento_atual = ""
 
-            if 'pasta_dados' not in buffer_evento:
-                buffer_evento = ""
-                continue
+                ultimo_audit_id = audit_id
 
-            usuario_id = extrair_valor(buffer_evento, 'UID')
+            evento_atual += linha
 
-            # >>>>>>> este if tem que estar indentado junto
-            if usuario_id in ("0", "unset", "Desconhecido"):
-                usuario_id = extrair_valor(buffer_evento, 'AUID')
-
-            usuario_nome = traduzir_uid(usuario_id)
-
-            syscall = extrair_valor(buffer_evento, 'SYSCALL')
-            arquivo = extrair_valor(buffer_evento, 'name')
-            data_hora = extrair_data(buffer_evento)
-
-            # Determina o tipo de alteração
-            if syscall == 'openat' and 'O_CREAT' in buffer_evento:
-                alteracao = "Criou"
-            elif syscall == 'unlinkat':
-                alteracao = "Deletou"
-            elif syscall == 'renameat':
-                alteracao = "Renomeou/Moveu"
-            elif syscall == 'setxattr':
-                alteracao = "Alterou"
-            else:
-                buffer_evento = ""
-                continue  # Pula syscalls que não nos interessam
-
-            # Armazena o evento no cache para o monitorar_pasta() usar
-            ultimos_eventos[arquivo] = {
-                "usuario": usuario_nome,
-                "acao": alteracao,
-                "data": data_hora
-            }
-
-            buffer_evento = ""  # Limpa o buffer para o próximo evento
 
 
 
