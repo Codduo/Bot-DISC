@@ -8,6 +8,8 @@ import asyncio
 from datetime import datetime
 import logging
 import pwd
+import sys
+
 
 
 
@@ -39,6 +41,17 @@ import json
 import os
 
 import logging
+
+
+LOCKFILE = "/tmp/bot_bmz.lock"
+
+if os.path.exists(LOCKFILE):
+    print("⚠️ Já existe uma instância do bot rodando. Abortando.")
+    sys.exit(1)
+
+with open(LOCKFILE, "w") as f:
+    f.write(str(os.getpid()))
+
 
 # Configura o Logger
 logging.basicConfig(
@@ -952,6 +965,16 @@ async def on_guild_remove(guild):
     sugestao_channels.pop(str(guild.id), None)
     test_channels.pop(str(guild.id), None)
     salvar_dados()
+
+
+
+import atexit
+
+def remove_lockfile():
+    if os.path.exists(LOCKFILE):
+        os.remove(LOCKFILE)
+
+atexit.register(remove_lockfile)
 
 
 from dotenv import load_dotenv
