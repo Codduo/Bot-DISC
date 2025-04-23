@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import TextStyle
 from discord.ui import View, Modal, InputText, Button, Select
 from discord import SelectOption
 from math import ceil
@@ -434,8 +435,8 @@ async def setcargo(ctx):
 
 # Modal que abre com o botão dos tickets
 class TicketModal(Modal, title="Solicitar Cargo"):
-    nome = InputText(label="Nome", placeholder="Digite seu nome completo", style=discord.ui.TextStyle.short)
-    cargo = InputText(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=discord.ui.TextStyle.paragraph)
+    nome = InputText(label="Nome", placeholder="Digite seu nome completo", style=TextStyle.short)
+    cargo = InputText(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=TextStyle.paragraph)
 
     async def on_submit(self, interaction: discord.Interaction):
         mod_channel_id = ticket_response_channels.get(str(interaction.guild.id))
@@ -568,7 +569,7 @@ async def reclamacao(ctx):
     await ctx.send("🔹 Escolha o canal que vai receber as sugestões/reclamações:", view=view)
 
 class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
-    mensagem = InputText(label="Escreva aqui", style=discord.ui.TextStyle.paragraph)
+    mensagem = InputText(label="Escreva aqui", style=TextStyle.paragraph)
 
     async def on_submit(self, interaction):
         canal_id = sugestao_channels.get(str(interaction.guild.id))
@@ -642,9 +643,9 @@ async def tipos(ctx):
 @commands.has_permissions(administrator=True)
 async def criartipo(ctx):
     class CriarTipoModal(Modal, title="Criar Novo Tipo de Mensagem"):
-        nome = InputText(label="Nome do Tipo", placeholder="Ex: Alerta Importante", style=discord.ui.TextStyle.short)
-        emoji = InputText(label="Emoji", placeholder="Ex: 🚨", style=discord.ui.TextStyle.short)
-        cor = InputText(label="Cor Hexadecimal", placeholder="Ex: #ff0000", style=discord.ui.TextStyle.short)
+        nome = InputText(label="Nome do Tipo", placeholder="Ex: Alerta Importante", style=TextStyle.short)
+        emoji = InputText(label="Emoji", placeholder="Ex: 🚨", style=TextStyle.short)
+        cor = InputText(label="Cor Hexadecimal", placeholder="Ex: #ff0000", style=TextStyle.short)
 
         async def on_submit(self, interaction: discord.Interaction):
             nome_formatado = self.nome.value.lower().replace(" ", "_")
@@ -777,7 +778,7 @@ async def mensagem(ctx):
                 pass
 
             class ModalMensagem(Modal, title="Criar Mensagem"):
-                conteudo = InputText(label="Mensagem", style=discord.ui.TextStyle.paragraph, placeholder="Digite a mensagem...", required=True)
+                conteudo = InputText(label="Mensagem", style=TextStyle.paragraph, placeholder="Digite a mensagem...", required=True)
                 imagem = InputText(label="Imagem (opcional)", placeholder="URL da imagem...", required=False)
 
                 async def on_submit(self, interaction_modal: discord.Interaction):
