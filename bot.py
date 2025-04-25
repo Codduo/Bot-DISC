@@ -11,7 +11,6 @@ import pwd
 import sys
 import json
 
-
 # Função para carregar aniversariantes
 def carregar_aniversarios():
     if os.path.exists("aniversarios.json"):
@@ -37,15 +36,27 @@ async def verificar_aniversarios():
     for user_id, info in aniversarios.items():
         # Verifica se o aniversário do usuário é hoje
         if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
-            guild = bot.get_guild(1359193389022707823)  
+            guild = bot.get_guild(1359193389022707823)  # Substitua com o ID correto da guilda
             membro = guild.get_member(int(user_id)) if guild else None
             if membro:
-                mensagem = (
-                    f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉\n"
-                    f"🎁 Que seu dia seja repleto de alegrias e conquistas! Não se esqueça de agradecer a todos que passarem para te parabenizar! 💐🎉"
-                    f"\n\n🎈 **Parabéns!** 🎈"
+                # Obtém o link da foto (link_foto)
+                link_imagem = info.get("link_foto", None)
+                
+                if not link_imagem:
+                    print(f"⚠️ Não há link de foto para o aniversariante {info['nome']}.")
+                    continue
+                
+                # Menciona o membro e o cargo
+                mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
+                
+                # Envia o embed com a imagem
+                embed = discord.Embed(
+                    title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
+                    description=f"",
+                    color=discord.Color.blurple()
                 )
-                await canal.send(f"{membro.mention} {mensagem}")
+                embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
+                await canal.send(mention, embed=embed)  # Envia a foto com a menção
             else:
                 print(f"⚠️ Membro {info['nome']} não encontrado no servidor.")
 
@@ -543,36 +554,57 @@ async def ping(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def adicionar_aniversario(ctx, user_id: int, nome: str, data_nascimento: str):
-    """Adiciona um aniversariante à lista no arquivo JSON."""
+async def adicionar_aniversario(ctx):
+    """Adiciona um aniversariante à lista via pop-up."""
     
-    # Verificar se a data está no formato correto (YYYY-MM-DD)
-    try:
-        # Tentando converter a string para data
-        datetime.strptime(data_nascimento, "%Y-%m-%d")
-    except ValueError:
-        # Se der erro, significa que a data está no formato errado
-        await ctx.send("⚠️ A data deve estar no formato **YYYY-MM-DD**.")
-        return
+    class AdicionarAniversarioModal(Modal, title="Adicionar Aniversariante"):
+        user_id = TextInput(label="ID do Usuário", placeholder="Ex: 1234567890", style=TextStyle.short)
+        nome = TextInput(label="Nome", placeholder="Ex: João Silva", style=TextStyle.short)
+        data_nascimento = TextInput(label="Data de Nascimento (YYYY-MM-DD)", placeholder="Ex: 2000-03-01", style=TextStyle.short)
+        link_foto = TextInput(label="Link da Foto (Google Drive)", placeholder="Ex: https://drive.google.com/...", style=TextStyle.short)
+        
+        async def on_submit(self, interaction: discord.Interaction):
+            user_id = self.user_id.value.strip()
+            nome = self.nome.value.strip()
+            data_nascimento = self.data_nascimento.value.strip()
+            link_foto = self.link_foto.value.strip()
+            
+            # Verificar se os campos não estão vazios
+            if not user_id or not nome or not data_nascimento or not link_foto:
+                await interaction.response.send_message("⚠️ Todos os campos são obrigatórios.", ephemeral=True)
+                return
+
+            # Verificar a data
+            try:
+                datetime.strptime(data_nascimento, "%Y-%m-%d")
+            except ValueError:
+                await interaction.response.send_message("⚠️ A data deve estar no formato **YYYY-MM-DD**.", ephemeral=True)
+                return
+            
+            # Carregar os aniversariantes
+            aniversarios = carregar_aniversarios()
+
+            # Adiciona o aniversariante ao JSON
+            aniversarios[user_id] = {
+                "nome": nome,
+                "data_nascimento": data_nascimento,
+                "link_foto": link_foto
+            }
+
+            # Salva o arquivo JSON atualizado
+            salvar_aniversarios(aniversarios)
+
+            await interaction.response.send_message(f"✅ O aniversariante {nome} foi adicionado com sucesso!", ephemeral=True)
     
-    # Carregar os aniversariantes do arquivo JSON
-    aniversarios = carregar_aniversarios()
+    # Cria e exibe o modal
+    modal = AdicionarAniversarioModal()
+    await ctx.send("📅 Preencha as informações do aniversariante:", view=modal)
 
-    # Adiciona o aniversariante ao dicionário
-    aniversarios[str(user_id)] = {
-        "nome": nome,
-        "data_nascimento": data_nascimento
-    }
-
-    # Salvar novamente o arquivo JSON com os dados atualizados
-    salvar_aniversarios(aniversarios)
-    
-    await ctx.send(f"✅ O aniversário de **{nome}** foi adicionado com sucesso!")
-
+# Função para simular aniversário
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def simular_aniversario(ctx, user_id: int):
-    """Simula o envio de uma mensagem de aniversário."""
+    """Simula o envio de uma imagem de aniversário com link de foto."""
     
     # Carrega os aniversariantes
     aniversarios = carregar_aniversarios()
@@ -588,23 +620,31 @@ async def simular_aniversario(ctx, user_id: int):
     # Canal de envio
     canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
     
-    # Mensagem personalizada de aniversário
-    mensagem = (
-        f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉\n"
-        f"🎁 Que seu dia seja repleto de alegrias e conquistas! Não se esqueça de agradecer a todos que passarem para te parabenizar! 💐🎉"
-        f"\n\n🎈 **Parabéns!** 🎈"
-    )
+    # Obtém o link da imagem (link_foto)
+    link_imagem = info.get("link_foto", None)
     
-    # Envia a mensagem no canal de aniversários
+    if not link_imagem:
+        await ctx.send("⚠️ Não há link de foto associado a este aniversariante.")
+        return
+    
+    # Envia a imagem no canal de aniversários
     membro = bot.get_guild(1359193389022707823).get_member(int(user_id))  # Substitua com o ID correto da guilda
     if membro:
-        await canal.send(f"{membro.mention} {mensagem}")
-        await ctx.send(f"✅ A mensagem de aniversário para {info['nome']} foi simulada com sucesso!")
+        # Menciona o membro e o cargo
+        mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
+        
+        # Envia o embed com a imagem
+        embed = discord.Embed(
+            title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
+            description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
+            color=discord.Color.blurple()
+        )
+        embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
+        await canal.send(mention, embed=embed)
+        await ctx.send(f"✅ A mensagem de aniversário com imagem para {info['nome']} foi simulada com sucesso!")
     else:
         await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
-
-
-
+    
 # Comando: configura o canal onde os tickets serão enviados
 @bot.command()
 @commands.has_permissions(administrator=True)
