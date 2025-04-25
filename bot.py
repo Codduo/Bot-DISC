@@ -49,10 +49,10 @@ async def verificar_aniversarios():
                 # Menciona o membro e o cargo
                 mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
                 
-                # Envia o embed com a imagem
+                # Envia o embed com a imagem (sem texto)
                 embed = discord.Embed(
                     title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
-                    description=f"",
+                    description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
                     color=discord.Color.blurple()
                 )
                 embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
@@ -636,7 +636,7 @@ async def simular_aniversario(ctx, user_id: int):
         # Envia o embed com a imagem
         embed = discord.Embed(
             title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
-            description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
+            description="",
             color=discord.Color.blurple()
         )
         embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
