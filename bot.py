@@ -9,8 +9,53 @@ from datetime import datetime
 import logging
 import pwd
 import sys
+import json
 
 
+# Função para carregar aniversariantes
+def carregar_aniversarios():
+    if os.path.exists("aniversarios.json"):
+        with open("aniversarios.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+# Função para salvar aniversariantes
+def salvar_aniversarios(aniversarios):
+    with open("aniversarios.json", "w", encoding="utf-8") as f:
+        json.dump(aniversarios, f, indent=4, ensure_ascii=False)
+
+
+# ID do canal onde as mensagens de aniversário serão enviadas
+CANAL_ANIVERSARIO_ID = 1362040456279621892
+
+async def verificar_aniversarios():
+    aniversarios = carregar_aniversarios()  # Carrega o arquivo JSON
+    hoje = datetime.now().strftime("%m-%d")  # Formato "MM-DD"
+    
+    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
+    
+    for user_id, info in aniversarios.items():
+        # Verifica se o aniversário do usuário é hoje
+        if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
+            guild = bot.get_guild(1359193389022707823)  
+            membro = guild.get_member(int(user_id)) if guild else None
+            if membro:
+                mensagem = (
+                    f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉\n"
+                    f"🎁 Que seu dia seja repleto de alegrias e conquistas! Não se esqueça de agradecer a todos que passarem para te parabenizar! 💐🎉"
+                    f"\n\n🎈 **Parabéns!** 🎈"
+                )
+                await canal.send(f"{membro.mention} {mensagem}")
+            else:
+                print(f"⚠️ Membro {info['nome']} não encontrado no servidor.")
+
+async def verificar_diariamente():
+    while True:
+        now = datetime.now()
+        # Verifica se é meia-noite
+        if now.hour == 0 and now.minute == 0:
+            await verificar_aniversarios()
+        await asyncio.sleep(60)  # Espera 60 segundos até verificar novamente
 
 
 # ID do canal onde os LOGS de arquivos serão enviados
@@ -346,6 +391,7 @@ async def on_ready():
     try:
         bot.add_view(TicketButtonView())
         bot.add_view(SugestaoView())
+        bot.loop.create_task(verificar_diariamente())
     except Exception as e:
         print(f"⚠️ Erro ao adicionar Views: {e}")
 
@@ -354,6 +400,7 @@ async def on_ready():
         bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
     except Exception as e:
         print(f"⚠️ Erro ao criar Tasks: {e}")
+
 
 
 
@@ -985,4 +1032,3 @@ carregar_tipos_mensagem()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
-
