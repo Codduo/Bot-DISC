@@ -541,6 +541,24 @@ class TicketButtonView(View):
 async def ping(ctx):
     await ctx.send(f"🏓 Pong! Latência: `{round(bot.latency * 1000)}ms`")
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def adicionar_aniversario(ctx, user_id: int, nome: str, data_nascimento: str):
+    """Adiciona um aniversariante à lista."""
+    aniversarios = carregar_aniversarios()
+    
+    # Verifique o formato da data
+    try:
+        datetime.strptime(data_nascimento, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send("⚠️ A data deve estar no formato YYYY-MM-DD.")
+        return
+
+    aniversarios[str(user_id)] = {"nome": nome, "data_nascimento": data_nascimento}
+    salvar_aniversarios(aniversarios)
+    
+    await ctx.send(f"✅ Aniversário de {nome} adicionado com sucesso!")
+
 
 # Comando: configura o canal onde os tickets serão enviados
 @bot.command()
@@ -918,7 +936,7 @@ async def mensagem(ctx):
         pass
 
 
-@bot.command()
+@bot.command("")
 @commands.has_permissions(administrator=True)
 async def removecargomensagem(ctx):
     guild_id = str(ctx.guild.id)
