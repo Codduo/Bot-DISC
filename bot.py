@@ -53,7 +53,7 @@ async def verificar_diariamente():
     while True:
         now = datetime.now()
         # Verifica se é meia-noite
-        if now.hour == 0 and now.minute == 0:
+        if now.hour == 8 and now.minute == 0:
             await verificar_aniversarios()
         await asyncio.sleep(60)  # Espera 60 segundos até verificar novamente
 
@@ -544,20 +544,65 @@ async def ping(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def adicionar_aniversario(ctx, user_id: int, nome: str, data_nascimento: str):
-    """Adiciona um aniversariante à lista."""
-    aniversarios = carregar_aniversarios()
+    """Adiciona um aniversariante à lista no arquivo JSON."""
     
-    # Verifique o formato da data
+    # Verificar se a data está no formato correto (YYYY-MM-DD)
     try:
+        # Tentando converter a string para data
         datetime.strptime(data_nascimento, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("⚠️ A data deve estar no formato YYYY-MM-DD.")
+        # Se der erro, significa que a data está no formato errado
+        await ctx.send("⚠️ A data deve estar no formato **YYYY-MM-DD**.")
         return
+    
+    # Carregar os aniversariantes do arquivo JSON
+    aniversarios = carregar_aniversarios()
 
-    aniversarios[str(user_id)] = {"nome": nome, "data_nascimento": data_nascimento}
+    # Adiciona o aniversariante ao dicionário
+    aniversarios[str(user_id)] = {
+        "nome": nome,
+        "data_nascimento": data_nascimento
+    }
+
+    # Salvar novamente o arquivo JSON com os dados atualizados
     salvar_aniversarios(aniversarios)
     
-    await ctx.send(f"✅ Aniversário de {nome} adicionado com sucesso!")
+    await ctx.send(f"✅ O aniversário de **{nome}** foi adicionado com sucesso!")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def simular_aniversario(ctx, user_id: int):
+    """Simula o envio de uma mensagem de aniversário."""
+    
+    # Carrega os aniversariantes
+    aniversarios = carregar_aniversarios()
+
+    # Verifica se o ID do usuário existe no arquivo de aniversariantes
+    if str(user_id) not in aniversarios:
+        await ctx.send(f"⚠️ O usuário com ID {user_id} não está na lista de aniversariantes.")
+        return
+    
+    # Obtem as informações do aniversariante
+    info = aniversarios[str(user_id)]
+    
+    # Canal de envio
+    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
+    
+    # Mensagem personalizada de aniversário
+    mensagem = (
+        f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉\n"
+        f"🎁 Que seu dia seja repleto de alegrias e conquistas! Não se esqueça de agradecer a todos que passarem para te parabenizar! 💐🎉"
+        f"\n\n🎈 **Parabéns!** 🎈"
+    )
+    
+    # Envia a mensagem no canal de aniversários
+    membro = bot.get_guild(1359193389022707823).get_member(int(user_id))  # Substitua com o ID correto da guilda
+    if membro:
+        await canal.send(f"{membro.mention} {mensagem}")
+        await ctx.send(f"✅ A mensagem de aniversário para {info['nome']} foi simulada com sucesso!")
+    else:
+        await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
+
 
 
 # Comando: configura o canal onde os tickets serão enviados
