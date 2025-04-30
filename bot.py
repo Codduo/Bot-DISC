@@ -2,6 +2,24 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
+import os
+import sys
+import atexit
+
+LOCKFILE = "/tmp/bot_bmz.lock"
+
+if os.path.exists(LOCKFILE):
+    print("⚠️ Já existe uma instância do bot rodando. Abortando.")
+    sys.exit(1)
+
+with open(LOCKFILE, "w") as f:
+    f.write(str(os.getpid()))
+
+def remove_lockfile():
+    if os.path.exists(LOCKFILE):
+        os.remove(LOCKFILE)
+
+atexit.register(remove_lockfile)
 
 # Carrega variáveis de ambiente do .env
 load_dotenv()
