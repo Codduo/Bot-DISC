@@ -21,13 +21,12 @@ async def on_ready():
     try:
         bot.add_view(TicketButtonView())
         bot.add_view(SugestaoView())
-        bot.loop.create_task(aniversarios.verificar_diariamente())
-        bot.loop.create_task(pasta.monitorar_pasta())
-        bot.loop.create_task(audit_log.monitorar_audit_log())
+        bot.loop.create_task(aniversarios.verificar_diariamente(bot))
+        bot.loop.create_task(pasta.monitorar_pasta(bot))
+        bot.loop.create_task(audit_log.monitorar_audit_log(bot))
     except Exception as e:
         print(f"⚠️ Erro ao iniciar tarefas: {e}")
 
-# Eventos extras de entrada/saída
 @bot.event
 async def on_guild_join(guild):
     salvar.salvar_dados()
@@ -40,17 +39,23 @@ async def on_guild_remove(guild):
 async def on_command_completion(ctx):
     salvar.salvar_dados()
 
-# Carregamento de dados iniciais
-salvar.carregar_dados()
+# Carga inicial
 tipos_mensagem.carregar_tipos_mensagem()
+salvar.carregar_dados()
 
-# Lockfile (evita múltiplas instâncias simultâneas)
+# Carrega comandos
+bot.load_extension("comandos.aniversarios")
+bot.load_extension("comandos.cargos")
+bot.load_extension("comandos.mensagens")
+bot.load_extension("comandos.sugestoes")
+
+# Lockfile
 from lockfile import criar_lockfile, remover_lockfile
 criar_lockfile()
 import atexit
 atexit.register(remover_lockfile)
 
-# Rodar bot
+# Executar bot
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
