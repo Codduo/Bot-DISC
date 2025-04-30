@@ -51,9 +51,26 @@ bot.load_extension("comandos.sugestoes")
 
 # Lockfile
 from lockfile import criar_lockfile, remover_lockfile
-criar_lockfile()
-import atexit
-atexit.register(remover_lockfile)
+import asyncio
+
+async def main():
+    salvar.carregar_tipos_mensagem()
+    salvar.carregar_dados()
+    criar_lockfile()
+    import atexit
+    atexit.register(remover_lockfile)
+
+    await bot.load_extension("comandos.aniversarios")
+    await bot.load_extension("comandos.cargos")
+    await bot.load_extension("comandos.mensagens")
+    await bot.load_extension("comandos.sugestoes")
+
+    load_dotenv()
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    await bot.start(TOKEN)
+
+if __name__ == \"__main__\":
+    asyncio.run(main())
 
 # Executar bot
 load_dotenv()
