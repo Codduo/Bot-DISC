@@ -49,7 +49,6 @@ bot.load_extension("comandos.cargos")
 bot.load_extension("comandos.mensagens")
 bot.load_extension("comandos.sugestoes")
 
-# Lockfile
 from lockfile import criar_lockfile, remover_lockfile
 import asyncio
 
@@ -71,8 +70,3 @@ async def main():
 
 if __name__ == \"__main__\":
     asyncio.run(main())
-
-# Executar bot
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-bot.run(TOKEN)
