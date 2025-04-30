@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 
 from eventos import aniversarios, pasta, audit_log
-from dados import salvar, tipos_mensagem
+from dados import salvar
 from modelos.ticket import TicketButtonView
 from modelos.sugestao import SugestaoView
 
@@ -40,7 +40,7 @@ async def on_command_completion(ctx):
     salvar.salvar_dados()
 
 # Carga inicial
-tipos_mensagem.carregar_tipos_mensagem()
+salvar.carregar_tipos_mensagem()
 salvar.carregar_dados()
 
 # Carrega comandos
