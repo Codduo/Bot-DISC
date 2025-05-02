@@ -735,25 +735,13 @@ class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
     mensagem = TextInput(label="Escreva aqui", style=TextStyle.paragraph)
 
     async def on_submit(self, interaction):
-    canal_id = sugestao_channels.get(str(interaction.guild.id))
-    canal = bot.get_channel(canal_id)
-
-    print(f"[DEBUG] Guild ID: {interaction.guild.id} | Canal ID: {canal_id} | Canal: {canal}")
-
-    if canal:
-        embed = discord.Embed(
-            title="📢 Sugestão/Reclamação Anônima",
-            description=self.mensagem.value,
-            color=discord.Color.orange()
-        )
-        embed.set_footer(text="Enviado anonimamente")
-        await canal.send(embed=embed)
-    else:
-        await interaction.response.send_message("❌ Canal não configurado ou não encontrado.", ephemeral=True)
-        return
-
-    await interaction.response.send_message("✅ Sua mensagem foi enviada de forma anônima!", ephemeral=True)
-
+        canal_id = sugestao_channels.get(str(interaction.guild.id))
+        canal = bot.get_channel(canal_id)
+        if canal:
+            embed = discord.Embed(title="📢 Sugestão/Reclamação Anônima", description=self.mensagem.value, color=discord.Color.orange())
+            embed.set_footer(text="Enviado anonimamente")
+            await canal.send(embed=embed)
+        await interaction.response.send_message("✅ Sua mensagem foi enviada de forma anônima!", ephemeral=True)
 
 class SugestaoButton(Button):
     def __init__(self):
