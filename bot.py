@@ -11,20 +11,16 @@ import pwd
 import sys
 import json
 
-# Função para carregar aniversariantes
 def carregar_aniversarios():
     if os.path.exists("aniversarios.json"):
         with open("aniversarios.json", "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-# Função para salvar aniversariantes
 def salvar_aniversarios(aniversarios):
     with open("aniversarios.json", "w", encoding="utf-8") as f:
         json.dump(aniversarios, f, indent=4, ensure_ascii=False)
 
-
-# ID do canal onde as mensagens de aniversário serão enviadas
 CANAL_ANIVERSARIO_ID = 1362040456279621892
 
 async def verificar_aniversarios():
@@ -34,22 +30,18 @@ async def verificar_aniversarios():
     canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
     
     for user_id, info in aniversarios.items():
-        # Verifica se o aniversário do usuário é hoje
         if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
             guild = bot.get_guild(1359193389022707823)  # Substitua com o ID correto da guilda
             membro = guild.get_member(int(user_id)) if guild else None
             if membro:
-                # Obtém o link da foto (link_foto)
                 link_imagem = info.get("link_foto", None)
                 
                 if not link_imagem:
                     print(f"⚠️ Não há link de foto para o aniversariante {info['nome']}.")
                     continue
                 
-                # Menciona o membro e o cargo
                 mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
                 
-                # Envia o embed com a imagem (sem texto)
                 embed = discord.Embed(
                     title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
                     description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
@@ -63,15 +55,11 @@ async def verificar_aniversarios():
 async def verificar_diariamente():
     while True:
         now = datetime.now()
-        # Verifica se é meia-noite
         if now.hour == 8 and now.minute == 0:
             await verificar_aniversarios()
         await asyncio.sleep(60)  # Espera 60 segundos até verificar novamente
 
-
-# ID do canal onde os LOGS de arquivos serão enviados
 SEU_CANAL_ID = 1364212031875453059
-
 
 intents = discord.Intents.default()
 intents.members = True
@@ -80,7 +68,6 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Armazenamento por servidor (guild_id)
 auto_roles = {}
 ticket_response_channels = {}
 mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
@@ -90,14 +77,10 @@ mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
 cargo_autorizado_mensagem = {}  # guild_id: [lista de role_ids]
 ultimos_eventos = {}
 
-
-
-
 import json
 import os
 
 import logging
-
 
 LOCKFILE = "/tmp/bot_bmz.lock"
 
@@ -108,23 +91,17 @@ if os.path.exists(LOCKFILE):
 with open(LOCKFILE, "w") as f:
     f.write(str(os.getpid()))
 
-
-# Configura o Logger
 logging.basicConfig(
     level=logging.INFO,  # Nível de log: DEBUG, INFO, WARNING, ERROR, CRITICAL
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%d/%m/%Y %H:%M:%S"
 )
 
-# Substitui o print padrão do discord.py por logging
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)  # Pode ajustar para DEBUG se quiser ver ainda mais detalhes
 
-
-
 CAMINHO_PASTA = "/srv/dados"
 
-# Inicializa o conjunto de arquivos anteriores
 arquivos_anteriores = set()
 
 TEMPO_ESPERA_CONFIRMACAO = 15  # segundos (pode ajustar)
@@ -174,7 +151,6 @@ async def monitorar_pasta():
         try:
             arquivos_atuais = mapear_arquivos()
 
-            # Detectar novos arquivos
             novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
             for arquivo in novos_arquivos:
                 nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
@@ -199,7 +175,6 @@ async def monitorar_pasta():
                     else:
                         print(f"⏳ Arquivo {arquivo} ainda instável, ignorado")
 
-            # Detectar arquivos deletados
             arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
             for arquivo in arquivos_removidos:
                 nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
@@ -221,7 +196,6 @@ async def monitorar_pasta():
                 if canal:
                     await canal.send(mensagem)
 
-            # Detectar arquivos modificados
             arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
             for arquivo in arquivos_comuns:
                 if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
@@ -266,7 +240,6 @@ async def interpretar_evento(evento: str):
     if not arquivo or arquivo == 'unknown':
         return
 
-    # Determina o tipo de alteração
     if syscall == 'openat' and 'O_CREAT' in evento:
         alteracao = "Criou"
     elif syscall == 'unlinkat':
@@ -300,8 +273,6 @@ def interpretar_syscall(linha):
     else:
         return None
 
-
-# Carregar Tipos de Mensagem
 tipos_mensagem = {}
 
 def carregar_tipos_mensagem():
@@ -322,10 +293,6 @@ def carregar_tipos_mensagem():
 def salvar_tipos_mensagem():
     with open("tipos_mensagem.json", "w", encoding="utf-8") as f:
         json.dump(tipos_mensagem, f, indent=4, ensure_ascii=False)
-
-
-
-
 
 def salvar_dados():
     dados = {
@@ -358,8 +325,6 @@ def carregar_dados():
                 mensagem_roles.update(dados.get("mensagem_roles", {}))  # <--- ADICIONE ESTA LINHA
                 cargo_autorizado_mensagem.update(dados.get("cargo_autorizado_mensagem", {}))
 
-
-
 @bot.event
 async def on_member_join(member):
     role_id = auto_roles.get(str(member.guild.id))
@@ -369,7 +334,6 @@ async def on_member_join(member):
             await member.add_roles(role)
             print(f"✅ Cargo {role.name} atribuído a {member.name}")
 
-# Comando: define o cargo automático
 @bot.command(aliases=["cargos"])
 @commands.has_permissions(administrator=True)
 async def cargo(ctx):
@@ -395,7 +359,6 @@ async def cargo(ctx):
     view.add_item(RoleSelect())
     await ctx.send("👥 Selecione o cargo automático:", view=view)
 
-
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
@@ -412,10 +375,6 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ Erro ao criar Tasks: {e}")
 
-
-
-
-
 def extrair_valor(texto, campo):
     try:
         inicio = texto.index(f'{campo}=') + len(campo) + 1
@@ -429,7 +388,6 @@ def extrair_valor(texto, campo):
     except ValueError:
         return "Desconhecido"
 
-
 def extrair_data(texto):
     try:
         inicio = texto.index('audit(') + 6
@@ -439,7 +397,6 @@ def extrair_data(texto):
         return dt.strftime('%d/%m/%Y %Hh%Mmin%Ss')
     except Exception:
         return "Data desconhecida"
-
 
 async def monitorar_audit_log():
     await bot.wait_until_ready()
@@ -457,7 +414,6 @@ async def monitorar_audit_log():
                 continue
 
             if 'type=SYSCALL' in linha:
-                # Nova linha de syscall. Verifica se é um novo evento (novo audit ID).
                 try:
                     audit_inicio = linha.index('audit(') + 6
                     audit_fim = linha.index(':', audit_inicio)
@@ -466,7 +422,6 @@ async def monitorar_audit_log():
                     audit_id = None
 
                 if audit_id != ultimo_audit_id and evento_atual:
-                    # Temos um evento completo para processar!
                     await interpretar_evento(evento_atual)
                     evento_atual = ""
 
@@ -474,10 +429,6 @@ async def monitorar_audit_log():
 
             evento_atual += linha
 
-
-
-
-# Comando: define o cargo a ser mencionado nos tickets
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setcargo(ctx):
@@ -503,8 +454,6 @@ async def setcargo(ctx):
     view.add_item(MentionRoleSelect())
     await ctx.send("🔣 Selecione o cargo que será mencionado nos tickets:", view=view)
 
-
-# Modal que abre com o botão dos tickets
 class TicketModal(Modal, title="Solicitar Cargo"):
     nome = TextInput(label="Nome", placeholder="Digite seu nome completo", style=TextStyle.short)
     cargo = TextInput(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=TextStyle.paragraph)
@@ -546,8 +495,6 @@ class TicketButtonView(View):
         super().__init__(timeout=None)
         self.add_item(TicketButton())
 
-#comando de ping
-
 @bot.command()
 async def ping(ctx):
     await ctx.send(f"🏓 Pong! Latência: `{round(bot.latency * 1000)}ms`")
@@ -569,71 +516,56 @@ async def adicionar_aniversario(ctx):
             data_nascimento = self.data_nascimento.value.strip()
             link_foto = self.link_foto.value.strip()
             
-            # Verificar se os campos não estão vazios
             if not user_id or not nome or not data_nascimento or not link_foto:
                 await interaction.response.send_message("⚠️ Todos os campos são obrigatórios.", ephemeral=True)
                 return
 
-            # Verificar a data
             try:
                 datetime.strptime(data_nascimento, "%Y-%m-%d")
             except ValueError:
                 await interaction.response.send_message("⚠️ A data deve estar no formato **YYYY-MM-DD**.", ephemeral=True)
                 return
             
-            # Carregar os aniversariantes
             aniversarios = carregar_aniversarios()
 
-            # Adiciona o aniversariante ao JSON
             aniversarios[user_id] = {
                 "nome": nome,
                 "data_nascimento": data_nascimento,
                 "link_foto": link_foto
             }
 
-            # Salva o arquivo JSON atualizado
             salvar_aniversarios(aniversarios)
 
             await interaction.response.send_message(f"✅ O aniversariante {nome} foi adicionado com sucesso!", ephemeral=True)
     
-    # Cria e exibe o modal
     modal = AdicionarAniversarioModal()
     await ctx.send("📅 Preencha as informações do aniversariante:", view=modal)
 
-# Função para simular aniversário
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def simular_aniversario(ctx, user_id: int):
     """Simula o envio de uma imagem de aniversário com link de foto."""
     
-    # Carrega os aniversariantes
     aniversarios = carregar_aniversarios()
 
-    # Verifica se o ID do usuário existe no arquivo de aniversariantes
     if str(user_id) not in aniversarios:
         await ctx.send(f"⚠️ O usuário com ID {user_id} não está na lista de aniversariantes.")
         return
     
-    # Obtem as informações do aniversariante
     info = aniversarios[str(user_id)]
     
-    # Canal de envio
     canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
     
-    # Obtém o link da imagem (link_foto)
     link_imagem = info.get("link_foto", None)
     
     if not link_imagem:
         await ctx.send("⚠️ Não há link de foto associado a este aniversariante.")
         return
     
-    # Envia a imagem no canal de aniversários
     membro = bot.get_guild(1359193389022707823).get_member(int(user_id))  # Substitua com o ID correto da guilda
     if membro:
-        # Menciona o membro e o cargo
         mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
         
-        # Envia o embed com a imagem
         embed = discord.Embed(
             title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
             description="",
@@ -645,7 +577,6 @@ async def simular_aniversario(ctx, user_id: int):
     else:
         await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
     
-# Comando: configura o canal onde os tickets serão enviados
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ticket(ctx):
@@ -707,7 +638,6 @@ async def ticket(ctx):
 
     await ctx.send("📌 Selecione o canal para onde os tickets serão enviados:", view=ChannelSelectionView())
 
-# Comando: define o canal para sugestões/reclamações anônimas
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def reclamacao(ctx):
@@ -801,7 +731,6 @@ async def tipos(ctx):
 
     await ctx.send(embed=embed)
 
-
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def criartipo(ctx):
@@ -819,7 +748,6 @@ async def criartipo(ctx):
             salvar_tipos_mensagem()
             await interaction.response.send_message(f"✅ Tipo `{self.nome.value}` criado com sucesso!", ephemeral=True)
 
-    # Agora cria um botão para abrir o modal:
     class CriarTipoButton(Button):
         def __init__(self):
             super().__init__(label="Criar Novo Tipo", style=discord.ButtonStyle.primary)
@@ -830,7 +758,6 @@ async def criartipo(ctx):
     view = View()
     view.add_item(CriarTipoButton())
     await ctx.send("➕ Clique abaixo para criar um novo tipo de mensagem:", view=view)
-
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -858,9 +785,6 @@ async def apagatipo(ctx):
     view.add_item(ApagarTipoSelect())
     await ctx.send("🗑️ Selecione o tipo de mensagem que deseja apagar:", view=view)
 
-
-
-# Comando para definir quais cargos podem usar !mensagem
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setcargomensagem(ctx):
@@ -897,7 +821,6 @@ async def setcargomensagem(ctx):
     view.add_item(CargoMensagemSelect())
     await ctx.send("🔹 Selecione os cargos que poderão usar `!mensagem`:", view=view)
 
-    # Apaga o comando depois que mandar o menu
     try:
         await ctx.message.delete()
     except:
@@ -1020,7 +943,6 @@ async def mensagem(ctx):
     except:
         pass
 
-
 @bot.command("")
 @commands.has_permissions(administrator=True)
 async def removecargomensagem(ctx):
@@ -1031,7 +953,6 @@ async def removecargomensagem(ctx):
         await ctx.send("⚠️ Nenhum cargo autorizado para remover.", delete_after=5)
         return
 
-    # Monta lista de opções dos cargos que estão atualmente autorizados
     guild_roles = ctx.guild.roles
     options = []
     for role_id in cargos_autorizados:
@@ -1065,13 +986,10 @@ async def removecargomensagem(ctx):
     view.add_item(RemoverCargoMensagemSelect())
     await ctx.send("🔹 Selecione o cargo que você deseja remover da autorização do `!mensagem`:", view=view)
 
-    # Apaga a mensagem de comando enviada
     try:
         await ctx.message.delete()
     except:
         pass
-
-
 
 @bot.command(name="ajuda")
 async def ajuda(ctx):
@@ -1095,7 +1013,6 @@ async def ajuda(ctx):
 
     await ctx.send(embed=embed)
 
-
 @bot.event
 async def on_command_completion(ctx):
     salvar_dados()
@@ -1113,8 +1030,6 @@ async def on_guild_remove(guild):
     test_channels.pop(str(guild.id), None)
     salvar_dados()
 
-
-
 import atexit
 
 def remove_lockfile():
@@ -1122,7 +1037,6 @@ def remove_lockfile():
         os.remove(LOCKFILE)
 
 atexit.register(remove_lockfile)
-
 
 from dotenv import load_dotenv
 
