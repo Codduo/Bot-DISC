@@ -1,77 +1,37 @@
-import discord
-from discord.ext import commands, tasks
-from discord import TextStyle
-from discord.ui import View, Modal, TextInput, Button, Select
-from discord import SelectOption
-from math import ceil
 import asyncio
-from datetime import datetime
+import atexit
+import discord
+import json
 import logging
+import os
 import pwd
 import sys
-import json
+from datetime import datetime
+from discord import SelectOption, TextStyle
+from discord.ext import commands, tasks
+from discord.ui import View, Modal, TextInput, Button, Select
+from dotenv import load_dotenv
+from math import ceil
 
-# Função para carregar aniversariantes
-def carregar_aniversarios():
-    if os.path.exists("aniversarios.json"):
-        with open("aniversarios.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-# Função para salvar aniversariantes
-def salvar_aniversarios(aniversarios):
-    with open("aniversarios.json", "w", encoding="utf-8") as f:
-        json.dump(aniversarios, f, indent=4, ensure_ascii=False)
-
-
-# ID do canal onde as mensagens de aniversário serão enviadas
+#Variaveis
 CANAL_ANIVERSARIO_ID = 1362040456279621892
-
-async def verificar_aniversarios():
-    aniversarios = carregar_aniversarios()  # Carrega o arquivo JSON
-    hoje = datetime.now().strftime("%m-%d")  # Formato "MM-DD"
-    
-    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
-    
-    for user_id, info in aniversarios.items():
-        # Verifica se o aniversário do usuário é hoje
-        if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
-            guild = bot.get_guild(1359193389022707823)  # Substitua com o ID correto da guilda
-            membro = guild.get_member(int(user_id)) if guild else None
-            if membro:
-                # Obtém o link da foto (link_foto)
-                link_imagem = info.get("link_foto", None)
-                
-                if not link_imagem:
-                    print(f"⚠️ Não há link de foto para o aniversariante {info['nome']}.")
-                    continue
-                
-                # Menciona o membro e o cargo
-                mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
-                
-                # Envia o embed com a imagem (sem texto)
-                embed = discord.Embed(
-                    title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
-                    description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
-                    color=discord.Color.blurple()
-                )
-                embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
-                await canal.send(mention, embed=embed)  # Envia a foto com a menção
-            else:
-                print(f"⚠️ Membro {info['nome']} não encontrado no servidor.")
-
-async def verificar_diariamente():
-    while True:
-        now = datetime.now()
-        # Verifica se é meia-noite
-        if now.hour == 8 and now.minute == 0:
-            await verificar_aniversarios()
-        await asyncio.sleep(60)  # Espera 60 segundos até verificar novamente
-
-
-# ID do canal onde os LOGS de arquivos serão enviados
 SEU_CANAL_ID = 1364212031875453059
+CAMINHO_PASTA = "/srv/dados"
+TEMPO_ESPERA_CONFIRMACAO = 15  # segundos
+LOCKFILE = "/tmp/bot_bmz.lock"
 
+auto_roles = {}
+ticket_response_channels = {}
+mention_roles = {}
+sugestao_channels = {}
+test_channels = {}
+mensagem_roles = {}
+cargo_autorizado_mensagem = {}
+ultimos_eventos = {}
+tipos_mensagem = {}
+
+arquivos_anteriores = set()
+aniversarios = {} 
 
 intents = discord.Intents.default()
 intents.members = True
@@ -80,209 +40,16 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Armazenamento por servidor (guild_id)
-auto_roles = {}
-ticket_response_channels = {}
-mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
-sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
-test_channels = {}  # guild_id: canal para mensagens de teste
-mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
-cargo_autorizado_mensagem = {}  # guild_id: [lista de role_ids]
-ultimos_eventos = {}
+#def's
+def carregar_aniversarios():
+    if os.path.exists("aniversarios.json"):
+        with open("aniversarios.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
-
-
-
-import json
-import os
-
-import logging
-
-
-LOCKFILE = "/tmp/bot_bmz.lock"
-
-if os.path.exists(LOCKFILE):
-    print("⚠️ Já existe uma instância do bot rodando. Abortando.")
-    sys.exit(1)
-
-with open(LOCKFILE, "w") as f:
-    f.write(str(os.getpid()))
-
-
-# Configura o Logger
-logging.basicConfig(
-    level=logging.INFO,  # Nível de log: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%d/%m/%Y %H:%M:%S"
-)
-
-# Substitui o print padrão do discord.py por logging
-logger = logging.getLogger('discord')
-logger.setLevel(logging.INFO)  # Pode ajustar para DEBUG se quiser ver ainda mais detalhes
-
-
-
-CAMINHO_PASTA = "/srv/dados"
-
-# Inicializa o conjunto de arquivos anteriores
-arquivos_anteriores = set()
-
-TEMPO_ESPERA_CONFIRMACAO = 15  # segundos (pode ajustar)
-
-async def confirmar_estabilidade(arquivo):
-    """Espera alguns segundos e confirma se o arquivo parou de ser modificado."""
-    try:
-        mod_time_inicial = os.stat(arquivo).st_mtime
-    except FileNotFoundError:
-        return False  # Arquivo já foi removido
-
-    await asyncio.sleep(TEMPO_ESPERA_CONFIRMACAO)
-
-    try:
-        mod_time_final = os.stat(arquivo).st_mtime
-    except FileNotFoundError:
-        return False
-
-    return mod_time_inicial == mod_time_final
-
-async def monitorar_pasta():
-    global arquivos_anteriores
-
-    def mapear_arquivos():
-        arquivos = {}
-        for raiz, _, arquivos_encontrados in os.walk(CAMINHO_PASTA):
-            for nome in arquivos_encontrados:
-                caminho = os.path.join(raiz, nome)
-                try:
-                    arquivos[caminho] = os.stat(caminho).st_mtime
-                except FileNotFoundError:
-                    continue  # Pode ocorrer se o arquivo for deletado enquanto mapeia
-        return arquivos
-
-    try:
-        arquivos_anteriores = mapear_arquivos()
-    except Exception as e:
-        print(f"Erro inicial ao listar arquivos: {e}")
-        return
-
-    await bot.wait_until_ready()
-    canal = bot.get_channel(SEU_CANAL_ID)
-
-    while True:
-        await asyncio.sleep(5)
-
-        try:
-            arquivos_atuais = mapear_arquivos()
-
-            # Detectar novos arquivos
-            novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
-            for arquivo in novos_arquivos:
-                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
-                info_evento = ultimos_eventos.pop(nome_arquivo, None)
-
-                if info_evento:
-                    mensagem = (
-                        f"📄 **Usuário:** {info_evento['usuario']}\n"
-                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
-                        f"🕒 **Data:** {info_evento['data']}"
-                    )
-                else:
-                    mensagem = (
-                        f"📄 **Usuário:** Desconhecido\n"
-                        f"🛠 **Alteração:** Criou `{nome_arquivo}`\n"
-                        f"🕒 **Data:** Desconhecida"
-                    )
-
-                if canal:
-                    if await confirmar_estabilidade(arquivo):
-                        await canal.send(mensagem)
-                    else:
-                        print(f"⏳ Arquivo {arquivo} ainda instável, ignorado")
-
-            # Detectar arquivos deletados
-            arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
-            for arquivo in arquivos_removidos:
-                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
-                info_evento = ultimos_eventos.pop(nome_arquivo, None)
-
-                if info_evento:
-                    mensagem = (
-                        f"📄 **Usuário:** {info_evento['usuario']}\n"
-                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
-                        f"🕒 **Data:** {info_evento['data']}"
-                    )
-                else:
-                    mensagem = (
-                        f"📄 **Usuário:** Desconhecido\n"
-                        f"🛠 **Alteração:** Deletou `{nome_arquivo}`\n"
-                        f"🕒 **Data:** Desconhecida"
-                    )
-
-                if canal:
-                    await canal.send(mensagem)
-
-            # Detectar arquivos modificados
-            arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
-            for arquivo in arquivos_comuns:
-                if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
-                    nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
-                    info_evento = ultimos_eventos.pop(nome_arquivo, None)
-
-                    if info_evento:
-                        mensagem = (
-                            f"📄 **Usuário:** {info_evento['usuario']}\n"
-                            f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
-                            f"🕒 **Data:** {info_evento['data']}"
-                        )
-                    else:
-                        mensagem = (
-                            f"📄 **Usuário:** Desconhecido\n"
-                            f"🛠 **Alteração:** Alterou `{nome_arquivo}`\n"
-                            f"🕒 **Data:** Desconhecida"
-                        )
-
-                    if canal:
-                        await canal.send(mensagem)
-
-            arquivos_anteriores = arquivos_atuais
-
-        except Exception as e:
-            print(f"Erro ao monitorar a pasta: {e}")
-
-async def interpretar_evento(evento: str):
-    if 'pasta_dados' not in evento:
-        return
-
-    usuario_id = extrair_valor(evento, 'UID')
-
-    if usuario_id in ("0", "unset", "Desconhecido"):
-        usuario_id = extrair_valor(evento, 'AUID')
-
-    usuario_nome = traduzir_uid(usuario_id)
-    syscall = extrair_valor(evento, 'SYSCALL')
-    arquivo = extrair_valor(evento, 'name')
-    data_hora = extrair_data(evento)
-
-    if not arquivo or arquivo == 'unknown':
-        return
-
-    # Determina o tipo de alteração
-    if syscall == 'openat' and 'O_CREAT' in evento:
-        alteracao = "Criou"
-    elif syscall == 'unlinkat':
-        alteracao = "Deletou"
-    elif syscall == 'renameat':
-        alteracao = "Renomeou/Moveu"
-    elif syscall == 'setxattr':
-        alteracao = "Alterou"
-    else:
-        return  # Ignora syscalls não relevantes
-
-    ultimos_eventos[arquivo] = {
-        "usuario": usuario_nome,
-        "acao": alteracao,
-        "data": data_hora
-    }
+def salvar_aniversarios(aniversarios):
+    with open("aniversarios.json", "w", encoding="utf-8") as f:
+        json.dump(aniversarios, f, indent=4, ensure_ascii=False)
 
 def traduzir_uid(uid):
     try:
@@ -299,10 +66,6 @@ def interpretar_syscall(linha):
         return "Renomeou/moveu um arquivo"
     else:
         return None
-
-
-# Carregar Tipos de Mensagem
-tipos_mensagem = {}
 
 def carregar_tipos_mensagem():
     global tipos_mensagem
@@ -322,10 +85,6 @@ def carregar_tipos_mensagem():
 def salvar_tipos_mensagem():
     with open("tipos_mensagem.json", "w", encoding="utf-8") as f:
         json.dump(tipos_mensagem, f, indent=4, ensure_ascii=False)
-
-
-
-
 
 def salvar_dados():
     dados = {
@@ -358,64 +117,6 @@ def carregar_dados():
                 mensagem_roles.update(dados.get("mensagem_roles", {}))  # <--- ADICIONE ESTA LINHA
                 cargo_autorizado_mensagem.update(dados.get("cargo_autorizado_mensagem", {}))
 
-
-
-@bot.event
-async def on_member_join(member):
-    role_id = auto_roles.get(str(member.guild.id))
-    if role_id:
-        role = member.guild.get_role(role_id)
-        if role:
-            await member.add_roles(role)
-            print(f"✅ Cargo {role.name} atribuído a {member.name}")
-
-# Comando: define o cargo automático
-@bot.command(aliases=["cargos"])
-@commands.has_permissions(administrator=True)
-async def cargo(ctx):
-    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
-        return
-
-    class RoleSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo automático", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            selected_role_id = int(self.values[0])
-            auto_roles[str(ctx.guild.id)] = selected_role_id
-            salvar_dados()  # <<< Aqui salva IMEDIATAMENTE!
-            role = ctx.guild.get_role(selected_role_id)
-            await interaction.response.send_message(f"✅ Cargo automático configurado para: **{role.name}**", ephemeral=True)
-
-    view = View()
-    view.add_item(RoleSelect())
-    await ctx.send("👥 Selecione o cargo automático:", view=view)
-
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
-    try:
-        bot.add_view(TicketButtonView())
-        bot.add_view(SugestaoView())
-        bot.loop.create_task(verificar_diariamente())
-    except Exception as e:
-        print(f"⚠️ Erro ao adicionar Views: {e}")
-
-    try:
-        bot.loop.create_task(monitorar_audit_log())  # Monitorar audit
-        bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
-    except Exception as e:
-        print(f"⚠️ Erro ao criar Tasks: {e}")
-
-
-
-
-
 def extrair_valor(texto, campo):
     try:
         inicio = texto.index(f'{campo}=') + len(campo) + 1
@@ -429,7 +130,6 @@ def extrair_valor(texto, campo):
     except ValueError:
         return "Desconhecido"
 
-
 def extrair_data(texto):
     try:
         inicio = texto.index('audit(') + 6
@@ -440,6 +140,190 @@ def extrair_data(texto):
     except Exception:
         return "Data desconhecida"
 
+def remove_lockfile():
+    if os.path.exists(LOCKFILE):
+        os.remove(LOCKFILE)
+
+#asyc def
+async def verificar_aniversarios():
+    aniversarios = carregar_aniversarios()  # Carrega o arquivo JSON
+    hoje = datetime.now().strftime("%m-%d")  # Formato "MM-DD"
+    
+    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
+    
+    for user_id, info in aniversarios.items():
+        if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
+            guild = bot.get_guild(1359193389022707823)
+            membro = guild.get_member(int(user_id)) if guild else None
+            if membro:
+                link_imagem = info.get("link_foto", None)
+                
+                if not link_imagem:
+                    print(f"⚠️ Não há link de foto para o aniversariante {info['nome']}.")
+                    continue
+                
+                mention = f"{membro.mention} <@&1359579655702839458>"
+                
+                embed = discord.Embed(
+                    title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
+                    description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
+                    color=discord.Color.blurple()
+                )
+                embed.set_image(url=link_imagem)
+                await canal.send(mention, embed=embed)
+            else:
+                print(f"⚠️ Membro {info['nome']} não encontrado no servidor.")
+
+async def verificar_diariamente():
+    while True:
+        now = datetime.now()
+        if now.hour == 8 and now.minute == 0:
+            await verificar_aniversarios()
+        await asyncio.sleep(60)
+
+async def confirmar_estabilidade(arquivo):
+    try:
+        mod_time_inicial = os.stat(arquivo).st_mtime
+    except FileNotFoundError:
+        return False
+
+    await asyncio.sleep(TEMPO_ESPERA_CONFIRMACAO)
+
+    try:
+        mod_time_final = os.stat(arquivo).st_mtime
+    except FileNotFoundError:
+        return False
+
+    return mod_time_inicial == mod_time_final
+
+async def monitorar_pasta():
+    global arquivos_anteriores
+
+    def mapear_arquivos():
+        arquivos = {}
+        for raiz, _, arquivos_encontrados in os.walk(CAMINHO_PASTA):
+            for nome in arquivos_encontrados:
+                caminho = os.path.join(raiz, nome)
+                try:
+                    arquivos[caminho] = os.stat(caminho).st_mtime
+                except FileNotFoundError:
+                    continue
+        return arquivos
+
+    try:
+        arquivos_anteriores = mapear_arquivos()
+    except Exception as e:
+        print(f"Erro inicial ao listar arquivos: {e}")
+        return
+
+    await bot.wait_until_ready()
+    canal = bot.get_channel(SEU_CANAL_ID)
+
+    while True:
+        await asyncio.sleep(5)
+        try:
+            arquivos_atuais = mapear_arquivos()
+            novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
+            for arquivo in novos_arquivos:
+                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                if info_evento:
+                    mensagem = (
+                        f"📄 **Usuário:** {info_evento['usuario']}\n"
+                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                        f"🕒 **Data:** {info_evento['data']}"
+                    )
+                else:
+                    mensagem = (
+                        f"📄 **Usuário:** Desconhecido\n"
+                        f"🛠 **Alteração:** Criou `{nome_arquivo}`\n"
+                        f"🕒 **Data:** Desconhecida"
+                    )
+
+                if canal and await confirmar_estabilidade(arquivo):
+                    await canal.send(mensagem)
+
+            arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
+            for arquivo in arquivos_removidos:
+                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                if info_evento:
+                    mensagem = (
+                        f"📄 **Usuário:** {info_evento['usuario']}\n"
+                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                        f"🕒 **Data:** {info_evento['data']}"
+                    )
+                else:
+                    mensagem = (
+                        f"📄 **Usuário:** Desconhecido\n"
+                        f"🛠 **Alteração:** Deletou `{nome_arquivo}`\n"
+                        f"🕒 **Data:** Desconhecida"
+                    )
+
+                if canal:
+                    await canal.send(mensagem)
+
+            arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
+            for arquivo in arquivos_comuns:
+                if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
+                    nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                    info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                    if info_evento:
+                        mensagem = (
+                            f"📄 **Usuário:** {info_evento['usuario']}\n"
+                            f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                            f"🕒 **Data:** {info_evento['data']}"
+                        )
+                    else:
+                        mensagem = (
+                            f"📄 **Usuário:** Desconhecido\n"
+                            f"🛠 **Alteração:** Alterou `{nome_arquivo}`\n"
+                            f"🕒 **Data:** Desconhecida"
+                        )
+
+                    if canal:
+                        await canal.send(mensagem)
+
+            arquivos_anteriores = arquivos_atuais
+
+        except Exception as e:
+            print(f"Erro ao monitorar a pasta: {e}")
+
+async def interpretar_evento(evento: str):
+    if 'pasta_dados' not in evento:
+        return
+
+    usuario_id = extrair_valor(evento, 'UID')
+    if usuario_id in ("0", "unset", "Desconhecido"):
+        usuario_id = extrair_valor(evento, 'AUID')
+
+    usuario_nome = traduzir_uid(usuario_id)
+    syscall = extrair_valor(evento, 'SYSCALL')
+    arquivo = extrair_valor(evento, 'name')
+    data_hora = extrair_data(evento)
+
+    if not arquivo or arquivo == 'unknown':
+        return
+
+    if syscall == 'openat' and 'O_CREAT' in evento:
+        alteracao = "Criou"
+    elif syscall == 'unlinkat':
+        alteracao = "Deletou"
+    elif syscall == 'renameat':
+        alteracao = "Renomeou/Moveu"
+    elif syscall == 'setxattr':
+        alteracao = "Alterou"
+    else:
+        return
+
+    ultimos_eventos[arquivo] = {
+        "usuario": usuario_nome,
+        "acao": alteracao,
+        "data": data_hora
+    }
 
 async def monitorar_audit_log():
     await bot.wait_until_ready()
@@ -457,7 +341,6 @@ async def monitorar_audit_log():
                 continue
 
             if 'type=SYSCALL' in linha:
-                # Nova linha de syscall. Verifica se é um novo evento (novo audit ID).
                 try:
                     audit_inicio = linha.index('audit(') + 6
                     audit_fim = linha.index(':', audit_inicio)
@@ -466,7 +349,6 @@ async def monitorar_audit_log():
                     audit_id = None
 
                 if audit_id != ultimo_audit_id and evento_atual:
-                    # Temos um evento completo para processar!
                     await interpretar_evento(evento_atual)
                     evento_atual = ""
 
@@ -474,37 +356,18 @@ async def monitorar_audit_log():
 
             evento_atual += linha
 
+#Classes 
+class RoleSelect(Select):
+    def __init__(self):
+        super().__init__(placeholder="Selecione o cargo automático", options=options)
 
+    async def callback(self, interaction: discord.Interaction):
+        selected_role_id = int(self.values[0])
+        auto_roles[str(ctx.guild.id)] = selected_role_id
+        salvar_dados()
+        role = ctx.guild.get_role(selected_role_id)
+        await interaction.response.send_message(f"✅ Cargo automático configurado para: **{role.name}**", ephemeral=True)
 
-
-# Comando: define o cargo a ser mencionado nos tickets
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setcargo(ctx):
-    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
-        return
-
-    class MentionRoleSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo para mencionar nos tickets", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            selected = int(self.values[0])
-            mention_roles[str(ctx.guild.id)] = selected
-            salvar_dados()  # <<< E aqui também!
-            role = ctx.guild.get_role(selected)
-            await interaction.response.send_message(f"📌 Cargo a ser mencionado nos tickets definido como: **{role.mention}**", ephemeral=True)
-
-    view = View()
-    view.add_item(MentionRoleSelect())
-    await ctx.send("🔣 Selecione o cargo que será mencionado nos tickets:", view=view)
-
-
-# Modal que abre com o botão dos tickets
 class TicketModal(Modal, title="Solicitar Cargo"):
     nome = TextInput(label="Nome", placeholder="Digite seu nome completo", style=TextStyle.short)
     cargo = TextInput(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=TextStyle.paragraph)
@@ -530,7 +393,6 @@ class TicketModal(Modal, title="Solicitar Cargo"):
         embed.set_footer(text=f"ID: {interaction.user.id}")
 
         mention = f"<@&{cargo_id}>" if cargo_id else ""
-
         await mod_channel.send(content=mention, embed=embed)
         await interaction.response.send_message("✅ Pedido enviado com sucesso! Seu apelido foi atualizado.", ephemeral=True)
 
@@ -546,190 +408,97 @@ class TicketButtonView(View):
         super().__init__(timeout=None)
         self.add_item(TicketButton())
 
-#comando de ping
+class AdicionarAniversarioModal(Modal, title="Adicionar Aniversariante"):
+    user_id = TextInput(label="ID do Usuário", placeholder="Ex: 1234567890", style=TextStyle.short)
+    nome = TextInput(label="Nome", placeholder="Ex: João Silva", style=TextStyle.short)
+    data_nascimento = TextInput(label="Data de Nascimento (YYYY-MM-DD)", placeholder="Ex: 2000-03-01", style=TextStyle.short)
+    link_foto = TextInput(label="Link da Foto (Google Drive)", placeholder="Ex: https://drive.google.com/...", style=TextStyle.short)
 
-@bot.command()
-async def ping(ctx):
-    await ctx.send(f"🏓 Pong! Latência: `{round(bot.latency * 1000)}ms`")
+    async def on_submit(self, interaction: discord.Interaction):
+        user_id = self.user_id.value.strip()
+        nome = self.nome.value.strip()
+        data_nascimento = self.data_nascimento.value.strip()
+        link_foto = self.link_foto.value.strip()
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def adicionar_aniversario(ctx):
-    """Adiciona um aniversariante à lista via pop-up."""
-    
-    class AdicionarAniversarioModal(Modal, title="Adicionar Aniversariante"):
-        user_id = TextInput(label="ID do Usuário", placeholder="Ex: 1234567890", style=TextStyle.short)
-        nome = TextInput(label="Nome", placeholder="Ex: João Silva", style=TextStyle.short)
-        data_nascimento = TextInput(label="Data de Nascimento (YYYY-MM-DD)", placeholder="Ex: 2000-03-01", style=TextStyle.short)
-        link_foto = TextInput(label="Link da Foto (Google Drive)", placeholder="Ex: https://drive.google.com/...", style=TextStyle.short)
-        
-        async def on_submit(self, interaction: discord.Interaction):
-            user_id = self.user_id.value.strip()
-            nome = self.nome.value.strip()
-            data_nascimento = self.data_nascimento.value.strip()
-            link_foto = self.link_foto.value.strip()
-            
-            # Verificar se os campos não estão vazios
-            if not user_id or not nome or not data_nascimento or not link_foto:
-                await interaction.response.send_message("⚠️ Todos os campos são obrigatórios.", ephemeral=True)
-                return
+        if not user_id or not nome or not data_nascimento or not link_foto:
+            await interaction.response.send_message("⚠️ Todos os campos são obrigatórios.", ephemeral=True)
+            return
 
-            # Verificar a data
-            try:
-                datetime.strptime(data_nascimento, "%Y-%m-%d")
-            except ValueError:
-                await interaction.response.send_message("⚠️ A data deve estar no formato **YYYY-MM-DD**.", ephemeral=True)
-                return
-            
-            # Carregar os aniversariantes
-            aniversarios = carregar_aniversarios()
+        try:
+            datetime.strptime(data_nascimento, "%Y-%m-%d")
+        except ValueError:
+            await interaction.response.send_message("⚠️ A data deve estar no formato **YYYY-MM-DD**.", ephemeral=True)
+            return
 
-            # Adiciona o aniversariante ao JSON
-            aniversarios[user_id] = {
-                "nome": nome,
-                "data_nascimento": data_nascimento,
-                "link_foto": link_foto
-            }
+        aniversarios = carregar_aniversarios()
+        aniversarios[user_id] = {
+            "nome": nome,
+            "data_nascimento": data_nascimento,
+            "link_foto": link_foto
+        }
+        salvar_aniversarios(aniversarios)
+        await interaction.response.send_message(f"✅ O aniversariante {nome} foi adicionado com sucesso!", ephemeral=True)
 
-            # Salva o arquivo JSON atualizado
-            salvar_aniversarios(aniversarios)
+class ChannelSelect(Select):
+    def __init__(self, page=0):
+        self.page = page
+        start = page * per_page
+        end = start + per_page
+        options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in all_channels[start:end]]
+        super().__init__(placeholder=f"Página {page + 1} de {total_pages}", options=options)
 
-            await interaction.response.send_message(f"✅ O aniversariante {nome} foi adicionado com sucesso!", ephemeral=True)
-    
-    # Cria e exibe o modal
-    modal = AdicionarAniversarioModal()
-    await ctx.send("📅 Preencha as informações do aniversariante:", view=modal)
+    async def callback(self, interaction: discord.Interaction):
+        selected_channel_id = int(self.values[0])
+        ticket_response_channels[str(ctx.guild.id)] = selected_channel_id
+        await interaction.response.send_message(f"✅ Canal de envio configurado para <#{selected_channel_id}>.", ephemeral=True)
+        await ctx.send("📉 Solicite seu cargo abaixo:", view=TicketButtonView())
 
-# Função para simular aniversário
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def simular_aniversario(ctx, user_id: int):
-    """Simula o envio de uma imagem de aniversário com link de foto."""
-    
-    # Carrega os aniversariantes
-    aniversarios = carregar_aniversarios()
+class ChannelSelectionView(View):
+    def __init__(self):
+        super().__init__(timeout=60)
+        self.page = 0
+        self.select = ChannelSelect(self.page)
+        self.add_item(self.select)
 
-    # Verifica se o ID do usuário existe no arquivo de aniversariantes
-    if str(user_id) not in aniversarios:
-        await ctx.send(f"⚠️ O usuário com ID {user_id} não está na lista de aniversariantes.")
-        return
-    
-    # Obtem as informações do aniversariante
-    info = aniversarios[str(user_id)]
-    
-    # Canal de envio
-    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
-    
-    # Obtém o link da imagem (link_foto)
-    link_imagem = info.get("link_foto", None)
-    
-    if not link_imagem:
-        await ctx.send("⚠️ Não há link de foto associado a este aniversariante.")
-        return
-    
-    # Envia a imagem no canal de aniversários
-    membro = bot.get_guild(1359193389022707823).get_member(int(user_id))  # Substitua com o ID correto da guilda
-    if membro:
-        # Menciona o membro e o cargo
-        mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
-        
-        # Envia o embed com a imagem
-        embed = discord.Embed(
-            title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
-            description="",
-            color=discord.Color.blurple()
+        if total_pages > 1:
+            self.prev = Button(label="⏪ Anterior", style=discord.ButtonStyle.secondary)
+            self.next = Button(label="⏩ Próximo", style=discord.ButtonStyle.secondary)
+            self.prev.callback = self.go_prev
+            self.next.callback = self.go_next
+            self.add_item(self.prev)
+            self.add_item(self.next)
+
+    async def go_prev(self, interaction):
+        if self.page > 0:
+            self.page -= 1
+            await self.update(interaction)
+
+    async def go_next(self, interaction):
+        if self.page < total_pages - 1:
+            self.page += 1
+            await self.update(interaction)
+
+    async def update(self, interaction):
+        self.clear_items()
+        self.select = ChannelSelect(self.page)
+        self.add_item(self.select)
+        if total_pages > 1:
+            self.add_item(self.prev)
+            self.add_item(self.next)
+        await interaction.response.edit_message(view=self)
+
+class CanalSelect(Select):
+    def __init__(self):
+        super().__init__(placeholder="Escolha onde as mensagens anônimas serão enviadas", options=options)
+
+    async def callback(self, interaction):
+        canal_id = int(self.values[0])
+        sugestao_channels[str(ctx.guild.id)] = canal_id
+        await interaction.response.send_message("✅ Canal de destino configurado!", ephemeral=True)
+        await ctx.send(
+            "**📜 Envie sua sugestão ou reclamação de forma anônima. Ninguém saberá que foi você.**",
+            view=SugestaoView()
         )
-        embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
-        await canal.send(mention, embed=embed)
-        await ctx.send(f"✅ A mensagem de aniversário com imagem para {info['nome']} foi simulada com sucesso!")
-    else:
-        await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
-    
-# Comando: configura o canal onde os tickets serão enviados
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def ticket(ctx):
-    all_channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
-    if not all_channels:
-        await ctx.send("❌ Não há canais disponíveis para seleção.")
-        return
-
-    per_page = 25
-    total_pages = ceil(len(all_channels) / per_page)
-
-    class ChannelSelect(Select):
-        def __init__(self, page=0):
-            self.page = page
-            start = page * per_page
-            end = start + per_page
-            options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in all_channels[start:end]]
-            super().__init__(placeholder=f"Página {page + 1} de {total_pages}", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            selected_channel_id = int(self.values[0])
-            ticket_response_channels[str(ctx.guild.id)] = selected_channel_id
-            await interaction.response.send_message(f"✅ Canal de envio configurado para <#{selected_channel_id}>.", ephemeral=True)
-            await ctx.send("📉 Solicite seu cargo abaixo:", view=TicketButtonView())
-
-    class ChannelSelectionView(View):
-        def __init__(self):
-            super().__init__(timeout=60)
-            self.page = 0
-            self.select = ChannelSelect(self.page)
-            self.add_item(self.select)
-
-            if total_pages > 1:
-                self.prev = Button(label="⏪ Anterior", style=discord.ButtonStyle.secondary)
-                self.next = Button(label="⏩ Próximo", style=discord.ButtonStyle.secondary)
-                self.prev.callback = self.go_prev
-                self.next.callback = self.go_next
-                self.add_item(self.prev)
-                self.add_item(self.next)
-
-        async def go_prev(self, interaction):
-            if self.page > 0:
-                self.page -= 1
-                await self.update(interaction)
-
-        async def go_next(self, interaction):
-            if self.page < total_pages - 1:
-                self.page += 1
-                await self.update(interaction)
-
-        async def update(self, interaction):
-            self.clear_items()
-            self.select = ChannelSelect(self.page)
-            self.add_item(self.select)
-            if total_pages > 1:
-                self.add_item(self.prev)
-                self.add_item(self.next)
-            await interaction.response.edit_message(view=self)
-
-    await ctx.send("📌 Selecione o canal para onde os tickets serão enviados:", view=ChannelSelectionView())
-
-# Comando: define o canal para sugestões/reclamações anônimas
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def reclamacao(ctx):
-    canais = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
-    options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in canais[:25]]
-
-    class CanalSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Escolha onde as mensagens anônimas serão enviadas", options=options)
-
-        async def callback(self, interaction):
-            canal_id = int(self.values[0])
-            sugestao_channels[str(ctx.guild.id)] = canal_id
-            await interaction.response.send_message("✅ Canal de destino configurado!", ephemeral=True)
-            await ctx.send(
-                "**📜 Envie sua sugestão ou reclamação de forma anônima. Ninguém saberá que foi você.**",
-                view=SugestaoView()
-            )
-
-    view = View()
-    view.add_item(CanalSelect())
-    await ctx.send("🔹 Escolha o canal que vai receber as sugestões/reclamações:", view=view)
 
 class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
     mensagem = TextInput(label="Escreva aqui", style=TextStyle.paragraph)
@@ -755,379 +524,48 @@ class SugestaoView(View):
         super().__init__(timeout=None)
         self.add_item(SugestaoButton())
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def clear(ctx):
-    class ConfirmarLimpeza(Button):
-        def __init__(self):
-            super().__init__(label="Sim, limpar!", style=discord.ButtonStyle.danger)
-
-        async def callback(self, interaction: discord.Interaction):
-            if interaction.user != ctx.author:
-                await interaction.response.send_message("❌ Apenas o autor do comando pode confirmar.", ephemeral=True)
-                return
-
-            for i in range(5, 0, -1):
-                await mensagem.edit(content=f"🧹 Limpando em {i} segundos...")
-                await asyncio.sleep(1)
-
-            await ctx.channel.purge()
-            aviso = await ctx.send("✅ Todas as mensagens foram limpas com sucesso!")
-            await asyncio.sleep(3)
-            await aviso.delete()
-
-    view = View()
-    view.add_item(ConfirmarLimpeza())
-    mensagem = await ctx.send("⚠️ Tem certeza que deseja limpar todas as mensagens deste canal?", view=view)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def tipos(ctx):
-    if not tipos_mensagem:
-        await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado.")
-        return
-
-    embed = discord.Embed(
-        title="📚 Tipos de Mensagem Cadastrados",
-        color=discord.Color.blue()
-    )
-
-    for tipo, info in tipos_mensagem.items():
-        embed.add_field(
-            name=f"{info.get('emoji', '📝')} {tipo.replace('_', ' ').title()}",
-            value=f"**Cor:** {info.get('cor', '#3498db')}",
-            inline=False
-        )
-
-    await ctx.send(embed=embed)
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def criartipo(ctx):
-    class CriarTipoModal(Modal, title="Criar Novo Tipo de Mensagem"):
-        nome = TextInput(label="Nome do Tipo", placeholder="Ex: Alerta Importante", style=TextStyle.short)
-        emoji = TextInput(label="Emoji", placeholder="Ex: 🚨", style=TextStyle.short)
-        cor = TextInput(label="Cor Hexadecimal", placeholder="Ex: #ff0000", style=TextStyle.short)
-
-        async def on_submit(self, interaction: discord.Interaction):
-            nome_formatado = self.nome.value.lower().replace(" ", "_")
-            tipos_mensagem[nome_formatado] = {
-                "emoji": self.emoji.value,
-                "cor": self.cor.value
-            }
-            salvar_tipos_mensagem()
-            await interaction.response.send_message(f"✅ Tipo `{self.nome.value}` criado com sucesso!", ephemeral=True)
-
-    # Agora cria um botão para abrir o modal:
-    class CriarTipoButton(Button):
-        def __init__(self):
-            super().__init__(label="Criar Novo Tipo", style=discord.ButtonStyle.primary)
-
-        async def callback(self, interaction: discord.Interaction):
-            await interaction.response.send_modal(CriarTipoModal())
-
-    view = View()
-    view.add_item(CriarTipoButton())
-    await ctx.send("➕ Clique abaixo para criar um novo tipo de mensagem:", view=view)
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def apagatipo(ctx):
-    if not tipos_mensagem:
-        await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado para apagar.")
-        return
-
-    options = [
-        SelectOption(label=tipo.replace('_', ' ').title(), value=tipo)
-        for tipo in tipos_mensagem.keys()
-    ]
-
-    class ApagarTipoSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o tipo para apagar", options=options)
-
-        async def callback(self, interaction):
-            tipo = self.values[0]
-            tipos_mensagem.pop(tipo, None)
-            salvar_tipos_mensagem()
-            await interaction.response.send_message(f"🗑️ Tipo `{tipo.replace('_', ' ').title()}` apagado com sucesso!", ephemeral=True)
-
-    view = View()
-    view.add_item(ApagarTipoSelect())
-    await ctx.send("🗑️ Selecione o tipo de mensagem que deseja apagar:", view=view)
-
-
-
-# Comando para definir quais cargos podem usar !mensagem
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setcargomensagem(ctx):
-    roles = [
-        r for r in ctx.guild.roles
-        if not r.is_bot_managed() and r.name.strip() and r.name != "@everyone"
-    ]
-
-    options = []
-    for r in roles:
-        nome_limpo = r.name.strip()
-        if nome_limpo:
-            options.append(
-                SelectOption(label=nome_limpo[:100], value=str(r.id))
-            )
-
-    options = options[:25]  # Limita a 25 opções para não dar erro
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo disponível para configurar.")
-        return
-
-    class CargoMensagemSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione os cargos que poderão usar !mensagem", options=options, min_values=1, max_values=len(options))
-
-        async def callback(self, interaction: discord.Interaction):
-            guild_id = str(ctx.guild.id)
-            cargo_autorizado_mensagem[guild_id] = [int(value) for value in self.values]
-            salvar_dados()
-            await interaction.response.send_message("✅ Cargos autorizados para usar `!mensagem` atualizados!", ephemeral=True)
-
-    view = View(timeout=60)
-    view.add_item(CargoMensagemSelect())
-    await ctx.send("🔹 Selecione os cargos que poderão usar `!mensagem`:", view=view)
-
-    # Apaga o comando depois que mandar o menu
-    try:
-        await ctx.message.delete()
-    except:
-        pass
-
-@bot.command()
-async def mensagem(ctx):
-    guild_id = str(ctx.guild.id)
-    autorizado = False
-
-    if ctx.author.guild_permissions.administrator:
-        autorizado = True
-    else:
-        autorizados = cargo_autorizado_mensagem.get(guild_id, [])
-        user_roles = [role.id for role in ctx.author.roles]
-        if any(role in autorizados for role in user_roles):
-            autorizado = True
-
-    if not autorizado:
-        await ctx.send("🚫 Você não tem permissão para usar o comando !mensagem.", delete_after=5)
-        return
-
-    if not tipos_mensagem:
-        await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado.", delete_after=5)
-        return
-
-    class TipoSelect(Select):
-        def __init__(self):
-            options = [
-                SelectOption(label=tipo.replace('_', ' ').title(), value=tipo, emoji=info.get("emoji", "📝"))
-                for tipo, info in tipos_mensagem.items()
-            ]
-            super().__init__(placeholder="Escolha o tipo da mensagem", options=options)
-
-        async def callback(self, interaction_tipo: discord.Interaction):
-            tipo_escolhido = self.values[0]
-
-            try:
-                await interaction_tipo.message.delete()
-            except:
-                pass
-
-            class ModalMensagem(Modal, title="Criar Mensagem"):
-                conteudo = TextInput(label="Mensagem", style=TextStyle.paragraph, placeholder="Digite a mensagem...", required=True)
-                imagem = TextInput(label="Imagem (opcional)", placeholder="URL da imagem...", required=False)
-
-                async def on_submit(self, interaction_modal: discord.Interaction):
-                    info_tipo = tipos_mensagem.get(tipo_escolhido)
-                    cor = int(info_tipo.get("cor", "#3498db").replace("#", ""), 16)
-
-                    embed = discord.Embed(
-                        title=f"{info_tipo.get('emoji', '📢')} {tipo_escolhido.replace('_', ' ').title()}",
-                        description=self.conteudo.value,
-                        color=cor,
-                        timestamp=datetime.utcnow()
-                    )
-
-                    if self.imagem.value:
-                        embed.set_image(url=self.imagem.value)
-
-                    roles = [
-                        r for r in interaction_modal.guild.roles
-                        if not r.is_bot_managed() and r.name.strip() and r.name != "@everyone"
-                    ]
-
-                    options_cargos = []
-                    for r in roles:
-                        nome_limpo = r.name.strip()
-                        if nome_limpo:
-                            options_cargos.append(
-                                SelectOption(label=nome_limpo[:100], value=str(r.id))
-                            )
-
-                    options_cargos = options_cargos[:25]
-                    options_cargos.insert(0, SelectOption(label="Não mencionar ninguém", value="none"))
-
-                    if not options_cargos:
-                        await interaction_modal.channel.send(embed=embed)
-                        await interaction_modal.response.send_message("✅ Mensagem enviada sem menção!", ephemeral=True)
-                        return
-
-                    class CargoSelect(Select):
-                        def __init__(self):
-                            super().__init__(
-                                placeholder="Escolha quem será mencionado (pode selecionar vários)",
-                                options=options_cargos,
-                                min_values=1,
-                                max_values=len(options_cargos)
-                            )
-
-                        async def callback(self, interaction_cargo: discord.Interaction):
-                            mencao_ids = self.values
-
-                            try:
-                                await interaction_cargo.message.delete()
-                            except:
-                                pass
-
-                            if "none" in mencao_ids:
-                                await interaction_cargo.channel.send(embed=embed)
-                            else:
-                                mencoes = [f"<@&{mencao_id}>" for mencao_id in mencao_ids]
-                                content = " ".join(mencoes)
-                                await interaction_cargo.channel.send(content=content, embed=embed)
-
-                            await interaction_cargo.response.send_message("✅ Mensagem enviada com sucesso!", ephemeral=True)
-
-                    view_cargo = View(timeout=60)
-                    view_cargo.add_item(CargoSelect())
-                    await interaction_modal.response.send_message("🔔 Escolha quem será mencionado na mensagem:", view=view_cargo, ephemeral=True)
-
-            await interaction_tipo.response.send_modal(ModalMensagem())
-
-    view_tipo = View(timeout=60)
-    view_tipo.add_item(TipoSelect())
-    await ctx.send("📚 Selecione o tipo da mensagem:", view=view_tipo)
-
-    try:
-        await ctx.message.delete()
-    except:
-        pass
-
-
-@bot.command("")
-@commands.has_permissions(administrator=True)
-async def removecargomensagem(ctx):
-    guild_id = str(ctx.guild.id)
-    cargos_autorizados = cargo_autorizado_mensagem.get(guild_id, [])
-
-    if not cargos_autorizados:
-        await ctx.send("⚠️ Nenhum cargo autorizado para remover.", delete_after=5)
-        return
-
-    # Monta lista de opções dos cargos que estão atualmente autorizados
-    guild_roles = ctx.guild.roles
-    options = []
-    for role_id in cargos_autorizados:
-        role = discord.utils.get(guild_roles, id=role_id)
-        if role and role.name.strip() and role.name != "@everyone":
-            nome_limpo = role.name.strip()
-            options.append(
-                SelectOption(label=nome_limpo[:100], value=str(role.id))
-            )
-
-    options = options[:25]  # Limita a 25 para não dar erro
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado para remover.", delete_after=5)
-        return
-
-    class RemoverCargoMensagemSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo para remover da permissão", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            role_id = int(self.values[0])
-            if role_id in cargo_autorizado_mensagem.get(guild_id, []):
-                cargo_autorizado_mensagem[guild_id].remove(role_id)
-                salvar_dados()
-                await interaction.response.send_message("✅ Cargo removido da lista de autorizados para `!mensagem`.", ephemeral=True)
-            else:
-                await interaction.response.send_message("⚠️ Cargo não encontrado na lista de autorizados.", ephemeral=True)
-
-    view = View(timeout=60)
-    view.add_item(RemoverCargoMensagemSelect())
-    await ctx.send("🔹 Selecione o cargo que você deseja remover da autorização do `!mensagem`:", view=view)
-
-    # Apaga a mensagem de comando enviada
-    try:
-        await ctx.message.delete()
-    except:
-        pass
-
-
-
-@bot.command(name="ajuda")
-async def ajuda(ctx):
-    embed = discord.Embed(
-        title="📖 Comandos disponíveis",
-        color=discord.Color.green(),
-        description="Veja abaixo os comandos que você pode usar:"
-    )
-    embed.add_field(name="!cargo", value="Define o cargo automático para novos membros.", inline=False)
-    embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
-    embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
-    embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
-    embed.add_field(name="!setcargomensagem", value="Define quais cargos poderão utilizar o !mensagem", inline=False)
-    embed.add_field(name="!removecargomensagem", value="Remove um cargo que pode utilizar o !mensagem", inline=False)
-    embed.add_field(name="!mensagem", value="Envia uma mensagem personalizada escolhendo o tipo, imagem e menção.", inline=False)
-    embed.add_field(name="!tipos", value="Lista todos os tipos de mensagem cadastrados.", inline=False)
-    embed.add_field(name="!criartipo", value="Cria um novo tipo de mensagem para o !mensagem.", inline=False)
-    embed.add_field(name="!apagatipo", value="Apaga um tipo de mensagem cadastrado.", inline=False)
-    embed.add_field(name="!ajuda", value="Mostra esta lista de comandos disponíveis.", inline=False)
-    embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
-
-    await ctx.send(embed=embed)
-
-
-
-
+#BotEvent
+@bot.event
+async def on_member_join(member):
+    role_id = auto_roles.get(str(member.guild.id))
+    if role_id:
+        role = member.guild.get_role(role_id)
+        if role:
+            await member.add_roles(role)
+            print(f"✅ Cargo {role.name} atribuído a {member.name}")
 
 @bot.event
-async def on_command_completion(ctx):
-    salvar_dados()
+async def on_ready():
+    print(f"✅ Bot conectado como {bot.user}")
+    try:
+        bot.add_view(TicketButtonView())
+        bot.add_view(SugestaoView())
+        bot.loop.create_task(verificar_diariamente())
+    except Exception as e:
+        print(f"⚠️ Erro ao adicionar Views: {e}")
+
+    try:
+        bot.loop.create_task(monitorar_audit_log())
+        bot.loop.create_task(monitorar_pasta())
+    except Exception as e:
+        print(f"⚠️ Erro ao criar Tasks: {e}")
 
 @bot.event
 async def on_guild_join(guild):
     salvar_dados()
 
 @bot.event
-async def on_guild_remove(guild):
-    auto_roles.pop(str(guild.id), None)
-    ticket_response_channels.pop(str(guild.id), None)
-    mention_roles.pop(str(guild.id), None)
-    sugestao_channels.pop(str(guild.id), None)
-    test_channels.pop(str(guild.id), None)
+async def on_command_completion(ctx):
     salvar_dados()
 
-
-
-import atexit
-
-def remove_lockfile():
-    if os.path.exists(LOCKFILE):
-        os.remove(LOCKFILE)
-
-atexit.register(remove_lockfile)
-
-
-from dotenv import load_dotenv
+@bot.event
+async def on_guild_remove(guild):
+        auto_roles.pop(str(guild.id), None)
+        ticket_response_channels.pop(str(guild.id), None)
+        mention_roles.pop(str(guild.id), None)
+        sugestao_channels.pop(str(guild.id), None)
+        test_channels.pop(str(guild.id), None)
+        salvar_dados()
 
 load_dotenv()
 carregar_dados() 
@@ -1135,3 +573,4 @@ carregar_tipos_mensagem()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
+
