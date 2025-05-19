@@ -11,7 +11,7 @@ import pwd
 import sys
 import json
 
-await bot.load_extension("ticketsup")
+
 
 def carregar_aniversarios():
     if os.path.exists("aniversarios.json"):
