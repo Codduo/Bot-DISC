@@ -10,10 +10,6 @@ import logging
 import pwd
 import sys
 import json
-import ticketsup
-
-
-bot.load_extension("ticketsup")
 
 def carregar_aniversarios():
     if os.path.exists("aniversarios.json"):
@@ -498,48 +494,6 @@ class TicketButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(TicketButton())
-
-class SuporteModal(Modal, title="Abrir Suporte Técnico"):
-    problema = TextInput(label="Descreva o problema", style=TextStyle.paragraph)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        author = interaction.user
-        role = discord.utils.get(guild.roles, name="Suporte Técnico")  # ou use um ID fixo
-
-        if not role:
-            await interaction.response.send_message("❌ Cargo 'Suporte Técnico' não encontrado.", ephemeral=True)
-            return
-
-        nome = f"suporte-{author.name}".lower().replace(" ", "-")
-        existente = discord.utils.get(guild.text_channels, name=nome)
-        if existente:
-            await interaction.response.send_message(f"⚠️ Você já tem um ticket aberto: {existente.mention}", ephemeral=True)
-            return
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            author: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            role: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        }
-
-        canal = await guild.create_text_channel(name=nome, overwrites=overwrites)
-        await canal.send(f"📩 **{author.mention} abriu um ticket de suporte:**\n{self.problema.value}")
-        await interaction.response.send_message(f"✅ Ticket criado: {canal.mention}", ephemeral=True)
-
-class SuporteButton(Button):
-    def __init__(self):
-        super().__init__(label="Suporte Técnico", style=discord.ButtonStyle.primary, emoji="🛠", custom_id="suporte_btn")
-
-    async def callback(self, interaction):
-        await interaction.response.send_modal(SuporteModal())
-
-class SuporteView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(SuporteButton())
-
 
 @bot.command()
 async def ping(ctx):
@@ -1058,12 +1012,6 @@ async def ajuda(ctx):
     embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
 
     await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def suporte(ctx):
-    await ctx.send("🛠 Clique abaixo para abrir um ticket de suporte:", view=SuporteView())
-
 
 @bot.event
 async def on_command_completion(ctx):
