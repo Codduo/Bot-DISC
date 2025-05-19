@@ -106,8 +106,6 @@ arquivos_anteriores = set()
 
 TEMPO_ESPERA_CONFIRMACAO = 15  # segundos (pode ajustar)
 
-import ticketsup
-
 async def confirmar_estabilidade(arquivo):
     """Espera alguns segundos e confirma se o arquivo parou de ser modificado."""
     try:
@@ -363,14 +361,7 @@ async def cargo(ctx):
 
 @bot.event
 async def on_ready():
-    print(f"{bot.user.name} está online.")
-    
-    # Canal onde você quer que apareça o botão
-    canal = bot.get_channel(ID_DO_CANAL)
-    if canal:
-        view = TicketView()
-        await canal.send("📩 Clique abaixo para abrir um ticket de suporte:", view=view)
-
+    print(f"✅ Bot conectado como {bot.user}")
     try:
         bot.add_view(TicketButtonView())
         bot.add_view(SugestaoView())
@@ -383,15 +374,6 @@ async def on_ready():
         bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
     except Exception as e:
         print(f"⚠️ Erro ao criar Tasks: {e}")
-
-
-async def main():
-    async with bot:
-        await bot.load_extension("ticketsup")
-        await bot.start("SEU_TOKEN")
-
-asyncio.run(main())
-
 
 def extrair_valor(texto, campo):
     try:
