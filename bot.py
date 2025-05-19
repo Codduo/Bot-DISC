@@ -10,6 +10,8 @@ import logging
 import pwd
 import sys
 import json
+import ticketsup
+
 
 bot.load_extension("ticketsup")
 
