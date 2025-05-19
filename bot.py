@@ -106,6 +106,13 @@ arquivos_anteriores = set()
 
 TEMPO_ESPERA_CONFIRMACAO = 15  # segundos (pode ajustar)
 
+import ticketsup
+
+@bot.event
+async def on_ready():
+    await ticketsup.setup(bot)
+
+
 async def confirmar_estabilidade(arquivo):
     """Espera alguns segundos e confirma se o arquivo parou de ser modificado."""
     try:
