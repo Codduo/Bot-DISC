@@ -1,3 +1,14 @@
+"""
+Bot Discord BMZ - Código reorganizado
+Este bot fornece funcionalidades para gerenciamento de servidores Discord, incluindo:
+- Sistema de cargos automáticos
+- Sistema de tickets
+- Sistema de sugestões/reclamações
+- Sistema de mensagens personalizadas
+- Sistema de aniversários
+- Monitoramento de pastas e logs
+"""
+
 import discord
 from discord.ext import commands, tasks
 from discord import TextStyle
@@ -10,272 +21,77 @@ import logging
 import pwd
 import sys
 import json
+import os
+from dotenv import load_dotenv
+
+# =============================================
+# Configurações e Constantes
+# =============================================
+
+LOCKFILE = "/tmp/bot_bmz.lock"
+CAMINHO_PASTA = "/srv/dados"
+CANAL_ANIVERSARIO_ID = 1362040456279621892
+SEU_CANAL_ID = 1364212031875453059
+TEMPO_ESPERA_CONFIRMACAO = 15  # segundos
+
+# =============================================
+# Configurações de Logging
+# =============================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%d/%m/%Y %H:%M:%S"
+)
+logger = logging.getLogger('discord')
+logger.setLevel(logging.INFO)
+
+# =============================================
+# Verificação de Instância Única
+# =============================================
+
+def verificar_instancia_unica():
+    """Verifica se já existe uma instância do bot rodando"""
+    if os.path.exists(LOCKFILE):
+        print("⚠️ Já existe uma instância do bot rodando. Abortando.")
+        sys.exit(1)
+    
+    with open(LOCKFILE, "w") as f:
+        f.write(str(os.getpid()))
+
+# =============================================
+# Estruturas de Dados Globais
+# =============================================
+
+auto_roles = {}
+ticket_response_channels = {}
+mention_roles = {}
+sugestao_channels = {}
+test_channels = {}
+mensagem_roles = {}
+cargo_autorizado_mensagem = {}
+ultimos_eventos = {}
+tipos_mensagem = {}
+arquivos_anteriores = set()
+
+# =============================================
+# Funções de Gerenciamento de Dados
+# =============================================
 
 def carregar_aniversarios():
+    """Carrega a lista de aniversários do arquivo JSON"""
     if os.path.exists("aniversarios.json"):
         with open("aniversarios.json", "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 def salvar_aniversarios(aniversarios):
+    """Salva a lista de aniversários em um arquivo JSON"""
     with open("aniversarios.json", "w", encoding="utf-8") as f:
         json.dump(aniversarios, f, indent=4, ensure_ascii=False)
 
-CANAL_ANIVERSARIO_ID = 1362040456279621892
-
-async def verificar_aniversarios():
-    aniversarios = carregar_aniversarios()  # Carrega o arquivo JSON
-    hoje = datetime.now().strftime("%m-%d")  # Formato "MM-DD"
-    
-    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
-    
-    for user_id, info in aniversarios.items():
-        if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
-            guild = bot.get_guild(1359193389022707823)  # Substitua com o ID correto da guilda
-            membro = guild.get_member(int(user_id)) if guild else None
-            if membro:
-                link_imagem = info.get("link_foto", None)
-                
-                if not link_imagem:
-                    print(f"⚠️ Não há link de foto para o aniversariante {info['nome']}.")
-                    continue
-                
-                mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
-                
-                embed = discord.Embed(
-                    title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
-                    description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
-                    color=discord.Color.blurple()
-                )
-                embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
-                await canal.send(mention, embed=embed)  # Envia a foto com a menção
-            else:
-                print(f"⚠️ Membro {info['nome']} não encontrado no servidor.")
-
-async def verificar_diariamente():
-    while True:
-        now = datetime.now()
-        if now.hour == 8 and now.minute == 0:
-            await verificar_aniversarios()
-        await asyncio.sleep(60)  # Espera 60 segundos até verificar novamente
-
-SEU_CANAL_ID = 1364212031875453059
-
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
-intents.voice_states = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-auto_roles = {}
-ticket_response_channels = {}
-mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
-sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
-test_channels = {}  # guild_id: canal para mensagens de teste
-mensagem_roles = {}  # guild_id: [lista de ids de cargos permitidos]
-cargo_autorizado_mensagem = {}  # guild_id: [lista de role_ids]
-ultimos_eventos = {}
-
-import json
-import os
-
-import logging
-
-LOCKFILE = "/tmp/bot_bmz.lock"
-
-if os.path.exists(LOCKFILE):
-    print("⚠️ Já existe uma instância do bot rodando. Abortando.")
-    sys.exit(1)
-
-with open(LOCKFILE, "w") as f:
-    f.write(str(os.getpid()))
-
-logging.basicConfig(
-    level=logging.INFO,  # Nível de log: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%d/%m/%Y %H:%M:%S"
-)
-
-logger = logging.getLogger('discord')
-logger.setLevel(logging.INFO)  # Pode ajustar para DEBUG se quiser ver ainda mais detalhes
-
-CAMINHO_PASTA = "/srv/dados"
-
-arquivos_anteriores = set()
-
-TEMPO_ESPERA_CONFIRMACAO = 15  # segundos (pode ajustar)
-
-async def confirmar_estabilidade(arquivo):
-    """Espera alguns segundos e confirma se o arquivo parou de ser modificado."""
-    try:
-        mod_time_inicial = os.stat(arquivo).st_mtime
-    except FileNotFoundError:
-        return False  # Arquivo já foi removido
-
-    await asyncio.sleep(TEMPO_ESPERA_CONFIRMACAO)
-
-    try:
-        mod_time_final = os.stat(arquivo).st_mtime
-    except FileNotFoundError:
-        return False
-
-    return mod_time_inicial == mod_time_final
-
-async def monitorar_pasta():
-    global arquivos_anteriores
-
-    def mapear_arquivos():
-        arquivos = {}
-        for raiz, _, arquivos_encontrados in os.walk(CAMINHO_PASTA):
-            for nome in arquivos_encontrados:
-                caminho = os.path.join(raiz, nome)
-                try:
-                    arquivos[caminho] = os.stat(caminho).st_mtime
-                except FileNotFoundError:
-                    continue  # Pode ocorrer se o arquivo for deletado enquanto mapeia
-        return arquivos
-
-    try:
-        arquivos_anteriores = mapear_arquivos()
-    except Exception as e:
-        print(f"Erro inicial ao listar arquivos: {e}")
-        return
-
-    await bot.wait_until_ready()
-    canal = bot.get_channel(SEU_CANAL_ID)
-
-    while True:
-        await asyncio.sleep(5)
-
-        try:
-            arquivos_atuais = mapear_arquivos()
-
-            novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
-            for arquivo in novos_arquivos:
-                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
-                info_evento = ultimos_eventos.pop(nome_arquivo, None)
-
-                if info_evento:
-                    mensagem = (
-                        f"📄 **Usuário:** {info_evento['usuario']}\n"
-                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
-                        f"🕒 **Data:** {info_evento['data']}"
-                    )
-                else:
-                    mensagem = (
-                        f"📄 **Usuário:** Desconhecido\n"
-                        f"🛠 **Alteração:** Criou `{nome_arquivo}`\n"
-                        f"🕒 **Data:** Desconhecida"
-                    )
-
-                if canal:
-                    if await confirmar_estabilidade(arquivo):
-                        await canal.send(mensagem)
-                    else:
-                        print(f"⏳ Arquivo {arquivo} ainda instável, ignorado")
-
-            arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
-            for arquivo in arquivos_removidos:
-                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
-                info_evento = ultimos_eventos.pop(nome_arquivo, None)
-
-                if info_evento:
-                    mensagem = (
-                        f"📄 **Usuário:** {info_evento['usuario']}\n"
-                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
-                        f"🕒 **Data:** {info_evento['data']}"
-                    )
-                else:
-                    mensagem = (
-                        f"📄 **Usuário:** Desconhecido\n"
-                        f"🛠 **Alteração:** Deletou `{nome_arquivo}`\n"
-                        f"🕒 **Data:** Desconhecida"
-                    )
-
-                if canal:
-                    await canal.send(mensagem)
-
-            arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
-            for arquivo in arquivos_comuns:
-                if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
-                    nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
-                    info_evento = ultimos_eventos.pop(nome_arquivo, None)
-
-                    if info_evento:
-                        mensagem = (
-                            f"📄 **Usuário:** {info_evento['usuario']}\n"
-                            f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
-                            f"🕒 **Data:** {info_evento['data']}"
-                        )
-                    else:
-                        mensagem = (
-                            f"📄 **Usuário:** Desconhecido\n"
-                            f"🛠 **Alteração:** Alterou `{nome_arquivo}`\n"
-                            f"🕒 **Data:** Desconhecida"
-                        )
-
-                    if canal:
-                        await canal.send(mensagem)
-
-            arquivos_anteriores = arquivos_atuais
-
-        except Exception as e:
-            print(f"Erro ao monitorar a pasta: {e}")
-
-async def interpretar_evento(evento: str):
-    if 'pasta_dados' not in evento:
-        return
-
-    usuario_id = extrair_valor(evento, 'UID')
-
-    if usuario_id in ("0", "unset", "Desconhecido"):
-        usuario_id = extrair_valor(evento, 'AUID')
-
-    usuario_nome = traduzir_uid(usuario_id)
-    syscall = extrair_valor(evento, 'SYSCALL')
-    arquivo = extrair_valor(evento, 'name')
-    data_hora = extrair_data(evento)
-
-    if not arquivo or arquivo == 'unknown':
-        return
-
-    if syscall == 'openat' and 'O_CREAT' in evento:
-        alteracao = "Criou"
-    elif syscall == 'unlinkat':
-        alteracao = "Deletou"
-    elif syscall == 'renameat':
-        alteracao = "Renomeou/Moveu"
-    elif syscall == 'setxattr':
-        alteracao = "Alterou"
-    else:
-        return  # Ignora syscalls não relevantes
-
-    ultimos_eventos[arquivo] = {
-        "usuario": usuario_nome,
-        "acao": alteracao,
-        "data": data_hora
-    }
-
-def traduzir_uid(uid):
-    try:
-        return pwd.getpwuid(int(uid)).pw_name
-    except:
-        return "Desconhecido"
-
-def interpretar_syscall(linha):
-    if 'SYSCALL=openat' in linha and 'O_CREAT' in linha:
-        return "Criou um arquivo"
-    elif 'SYSCALL=unlinkat' in linha:
-        return "Deletou um arquivo"
-    elif 'SYSCALL=renameat' in linha:
-        return "Renomeou/moveu um arquivo"
-    else:
-        return None
-
-tipos_mensagem = {}
-
 def carregar_tipos_mensagem():
+    """Carrega os tipos de mensagem do arquivo JSON"""
     global tipos_mensagem
     if os.path.exists("tipos_mensagem.json"):
         with open("tipos_mensagem.json", "r", encoding="utf-8") as f:
@@ -291,10 +107,12 @@ def carregar_tipos_mensagem():
         salvar_tipos_mensagem()
 
 def salvar_tipos_mensagem():
+    """Salva os tipos de mensagem em um arquivo JSON"""
     with open("tipos_mensagem.json", "w", encoding="utf-8") as f:
         json.dump(tipos_mensagem, f, indent=4, ensure_ascii=False)
 
 def salvar_dados():
+    """Salva as configurações do bot em um arquivo JSON"""
     dados = {
         "auto_roles": auto_roles,
         "ticket_response_channels": ticket_response_channels,
@@ -312,6 +130,7 @@ def salvar_dados():
     os.replace(temp_file, final_file)
 
 def carregar_dados():
+    """Carrega as configurações do bot do arquivo JSON"""
     if os.path.exists("dados_servidor.json"):
         with open("dados_servidor.json", "r", encoding="utf-8") as f:
             conteudo = f.read().strip()
@@ -322,60 +141,15 @@ def carregar_dados():
                 mention_roles.update(dados.get("mention_roles", {}))
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
                 test_channels.update(dados.get("test_channels", {}))
-                mensagem_roles.update(dados.get("mensagem_roles", {}))  # <--- ADICIONE ESTA LINHA
+                mensagem_roles.update(dados.get("mensagem_roles", {}))
                 cargo_autorizado_mensagem.update(dados.get("cargo_autorizado_mensagem", {}))
 
-@bot.event
-async def on_member_join(member):
-    role_id = auto_roles.get(str(member.guild.id))
-    if role_id:
-        role = member.guild.get_role(role_id)
-        if role:
-            await member.add_roles(role)
-            print(f"✅ Cargo {role.name} atribuído a {member.name}")
-
-@bot.command(aliases=["cargos"])
-@commands.has_permissions(administrator=True)
-async def cargo(ctx):
-    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
-        return
-
-    class RoleSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo automático", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            selected_role_id = int(self.values[0])
-            auto_roles[str(ctx.guild.id)] = selected_role_id
-            salvar_dados()  # <<< Aqui salva IMEDIATAMENTE!
-            role = ctx.guild.get_role(selected_role_id)
-            await interaction.response.send_message(f"✅ Cargo automático configurado para: **{role.name}**", ephemeral=True)
-
-    view = View()
-    view.add_item(RoleSelect())
-    await ctx.send("👥 Selecione o cargo automático:", view=view)
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
-    try:
-        bot.add_view(TicketButtonView())
-        bot.add_view(SugestaoView())
-        bot.loop.create_task(verificar_diariamente())
-    except Exception as e:
-        print(f"⚠️ Erro ao adicionar Views: {e}")
-
-    try:
-        bot.loop.create_task(monitorar_audit_log())  # Monitorar audit
-        bot.loop.create_task(monitorar_pasta())      # Monitorar pasta
-    except Exception as e:
-        print(f"⚠️ Erro ao criar Tasks: {e}")
+# =============================================
+# Utilitários de Monitoramento e Logs
+# =============================================
 
 def extrair_valor(texto, campo):
+    """Extrai um valor específico de um texto de audit log"""
     try:
         inicio = texto.index(f'{campo}=') + len(campo) + 1
         fim = texto.find(' ', inicio)
@@ -389,6 +163,7 @@ def extrair_valor(texto, campo):
         return "Desconhecido"
 
 def extrair_data(texto):
+    """Extrai a data de um log de auditoria"""
     try:
         inicio = texto.index('audit(') + 6
         fim = texto.index(':', inicio)
@@ -398,61 +173,38 @@ def extrair_data(texto):
     except Exception:
         return "Data desconhecida"
 
-async def monitorar_audit_log():
-    await bot.wait_until_ready()
-    path_log = '/var/log/audit/audit.log'
+def traduzir_uid(uid):
+    """Traduz um UID para um nome de usuário do sistema"""
+    try:
+        return pwd.getpwuid(int(uid)).pw_name
+    except:
+        return "Desconhecido"
 
-    with open(path_log, 'r') as f:
-        f.seek(0, os.SEEK_END)
-        evento_atual = ""
-        ultimo_audit_id = None
+def interpretar_syscall(linha):
+    """Interpreta uma chamada de sistema do log de auditoria"""
+    if 'SYSCALL=openat' in linha and 'O_CREAT' in linha:
+        return "Criou um arquivo"
+    elif 'SYSCALL=unlinkat' in linha:
+        return "Deletou um arquivo"
+    elif 'SYSCALL=renameat' in linha:
+        return "Renomeou/moveu um arquivo"
+    else:
+        return None
 
-        while True:
-            linha = f.readline()
-            if not linha:
-                await asyncio.sleep(0.5)
-                continue
+# =============================================
+# Configuração do Bot
+# =============================================
 
-            if 'type=SYSCALL' in linha:
-                try:
-                    audit_inicio = linha.index('audit(') + 6
-                    audit_fim = linha.index(':', audit_inicio)
-                    audit_id = linha[audit_inicio:audit_fim]
-                except:
-                    audit_id = None
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True
+intents.voice_states = True
 
-                if audit_id != ultimo_audit_id and evento_atual:
-                    await interpretar_evento(evento_atual)
-                    evento_atual = ""
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-                ultimo_audit_id = audit_id
-
-            evento_atual += linha
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setcargo(ctx):
-    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
-        return
-
-    class MentionRoleSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo para mencionar nos tickets", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            selected = int(self.values[0])
-            mention_roles[str(ctx.guild.id)] = selected
-            salvar_dados()  # <<< E aqui também!
-            role = ctx.guild.get_role(selected)
-            await interaction.response.send_message(f"📌 Cargo a ser mencionado nos tickets definido como: **{role.mention}**", ephemeral=True)
-
-    view = View()
-    view.add_item(MentionRoleSelect())
-    await ctx.send("🔣 Selecione o cargo que será mencionado nos tickets:", view=view)
+# =============================================
+# Classes de UI para Tickets
+# =============================================
 
 class TicketModal(Modal, title="Solicitar Cargo"):
     nome = TextInput(label="Nome", placeholder="Digite seu nome completo", style=TextStyle.short)
@@ -495,91 +247,490 @@ class TicketButtonView(View):
         super().__init__(timeout=None)
         self.add_item(TicketButton())
 
-@bot.command()
-async def ping(ctx):
-    await ctx.send(f"🏓 Pong! Latência: `{round(bot.latency * 1000)}ms`")
+# =============================================
+# Classes de UI para Sugestões
+# =============================================
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def adicionar_aniversario(ctx):
-    """Adiciona um aniversariante à lista via pop-up."""
-    
-    class AdicionarAniversarioModal(Modal, title="Adicionar Aniversariante"):
-        user_id = TextInput(label="ID do Usuário", placeholder="Ex: 1234567890", style=TextStyle.short)
-        nome = TextInput(label="Nome", placeholder="Ex: João Silva", style=TextStyle.short)
-        data_nascimento = TextInput(label="Data de Nascimento (YYYY-MM-DD)", placeholder="Ex: 2000-03-01", style=TextStyle.short)
-        link_foto = TextInput(label="Link da Foto (Google Drive)", placeholder="Ex: https://drive.google.com/...", style=TextStyle.short)
-        
-        async def on_submit(self, interaction: discord.Interaction):
-            user_id = self.user_id.value.strip()
-            nome = self.nome.value.strip()
-            data_nascimento = self.data_nascimento.value.strip()
-            link_foto = self.link_foto.value.strip()
-            
-            if not user_id or not nome or not data_nascimento or not link_foto:
-                await interaction.response.send_message("⚠️ Todos os campos são obrigatórios.", ephemeral=True)
-                return
+class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
+    mensagem = TextInput(label="Escreva aqui", style=TextStyle.paragraph)
 
-            try:
-                datetime.strptime(data_nascimento, "%Y-%m-%d")
-            except ValueError:
-                await interaction.response.send_message("⚠️ A data deve estar no formato **YYYY-MM-DD**.", ephemeral=True)
-                return
-            
-            aniversarios = carregar_aniversarios()
+    async def on_submit(self, interaction):
+        canal_id = sugestao_channels.get(str(interaction.guild.id))
+        canal = bot.get_channel(canal_id)
+        if canal:
+            embed = discord.Embed(title="📢 Sugestão/Reclamação Anônima", description=self.mensagem.value, color=discord.Color.orange())
+            embed.set_footer(text="Enviado anonimamente")
+            await canal.send(embed=embed)
+        await interaction.response.send_message("✅ Sua mensagem foi enviada de forma anônima!", ephemeral=True)
 
-            aniversarios[user_id] = {
-                "nome": nome,
-                "data_nascimento": data_nascimento,
-                "link_foto": link_foto
-            }
+class SugestaoButton(Button):
+    def __init__(self):
+        super().__init__(label="Enviar sugestão/reclamação", emoji="💡", style=discord.ButtonStyle.secondary, custom_id="sugestao_button")
 
-            salvar_aniversarios(aniversarios)
+    async def callback(self, interaction):
+        await interaction.response.send_modal(SugestaoModal())
 
-            await interaction.response.send_message(f"✅ O aniversariante {nome} foi adicionado com sucesso!", ephemeral=True)
-    
-    modal = AdicionarAniversarioModal()
-    await ctx.send("📅 Preencha as informações do aniversariante:", view=modal)
+class SugestaoView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(SugestaoButton())
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def simular_aniversario(ctx, user_id: int):
-    """Simula o envio de uma imagem de aniversário com link de foto."""
-    
+# =============================================
+# Tarefas Agendadas
+# =============================================
+
+async def verificar_aniversarios():
+    """Verifica se há aniversariantes no dia atual"""
     aniversarios = carregar_aniversarios()
-
-    if str(user_id) not in aniversarios:
-        await ctx.send(f"⚠️ O usuário com ID {user_id} não está na lista de aniversariantes.")
-        return
-    
-    info = aniversarios[str(user_id)]
+    hoje = datetime.now().strftime("%m-%d")  # Formato "MM-DD"
     
     canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
     
-    link_imagem = info.get("link_foto", None)
-    
-    if not link_imagem:
-        await ctx.send("⚠️ Não há link de foto associado a este aniversariante.")
+    for user_id, info in aniversarios.items():
+        if datetime.strptime(info["data_nascimento"], "%Y-%m-%d").strftime("%m-%d") == hoje:
+            guild = bot.get_guild(1359193389022707823)  # ID da guilda
+            membro = guild.get_member(int(user_id)) if guild else None
+            if membro:
+                link_imagem = info.get("link_foto", None)
+                
+                if not link_imagem:
+                    print(f"⚠️ Não há link de foto para o aniversariante {info['nome']}.")
+                    continue
+                
+                mention = f"{membro.mention} <@&1359579655702839458>"
+                
+                embed = discord.Embed(
+                    title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
+                    description=f"🎁 Que seu dia seja repleto de alegrias e conquistas! 💐🎉\n\n🎈 **Parabéns!** 🎈",
+                    color=discord.Color.blurple()
+                )
+                embed.set_image(url=link_imagem)
+                await canal.send(mention, embed=embed)
+            else:
+                print(f"⚠️ Membro {info['nome']} não encontrado no servidor.")
+
+async def verificar_diariamente():
+    """Verifica aniversários todos os dias às 8:00"""
+    while True:
+        now = datetime.now()
+        if now.hour == 8 and now.minute == 0:
+            await verificar_aniversarios()
+        await asyncio.sleep(60)  # Espera 60 segundos
+
+async def confirmar_estabilidade(arquivo):
+    """Espera alguns segundos e confirma se o arquivo parou de ser modificado."""
+    try:
+        mod_time_inicial = os.stat(arquivo).st_mtime
+    except FileNotFoundError:
+        return False  # Arquivo já foi removido
+
+    await asyncio.sleep(TEMPO_ESPERA_CONFIRMACAO)
+
+    try:
+        mod_time_final = os.stat(arquivo).st_mtime
+    except FileNotFoundError:
+        return False
+
+    return mod_time_inicial == mod_time_final
+
+async def monitorar_pasta():
+    """Monitora alterações em arquivos da pasta especificada"""
+    global arquivos_anteriores
+
+    def mapear_arquivos():
+        arquivos = {}
+        for raiz, _, arquivos_encontrados in os.walk(CAMINHO_PASTA):
+            for nome in arquivos_encontrados:
+                caminho = os.path.join(raiz, nome)
+                try:
+                    arquivos[caminho] = os.stat(caminho).st_mtime
+                except FileNotFoundError:
+                    continue
+        return arquivos
+
+    try:
+        arquivos_anteriores = mapear_arquivos()
+    except Exception as e:
+        print(f"Erro inicial ao listar arquivos: {e}")
         return
-    
-    membro = bot.get_guild(1359193389022707823).get_member(int(user_id))  # Substitua com o ID correto da guilda
-    if membro:
-        mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
-        
-        embed = discord.Embed(
-            title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
-            description="",
-            color=discord.Color.blurple()
-        )
-        embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
-        await canal.send(mention, embed=embed)
-        await ctx.send(f"✅ A mensagem de aniversário com imagem para {info['nome']} foi simulada com sucesso!")
+
+    await bot.wait_until_ready()
+    canal = bot.get_channel(SEU_CANAL_ID)
+
+    while True:
+        await asyncio.sleep(5)
+
+        try:
+            arquivos_atuais = mapear_arquivos()
+
+            # Verifica novos arquivos
+            novos_arquivos = set(arquivos_atuais) - set(arquivos_anteriores)
+            for arquivo in novos_arquivos:
+                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                if info_evento:
+                    mensagem = (
+                        f"📄 **Usuário:** {info_evento['usuario']}\n"
+                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                        f"🕒 **Data:** {info_evento['data']}"
+                    )
+                else:
+                    mensagem = (
+                        f"📄 **Usuário:** Desconhecido\n"
+                        f"🛠 **Alteração:** Criou `{nome_arquivo}`\n"
+                        f"🕒 **Data:** Desconhecida"
+                    )
+
+                if canal:
+                    if await confirmar_estabilidade(arquivo):
+                        await canal.send(mensagem)
+                    else:
+                        print(f"⏳ Arquivo {arquivo} ainda instável, ignorado")
+
+            # Verifica arquivos removidos
+            arquivos_removidos = set(arquivos_anteriores) - set(arquivos_atuais)
+            for arquivo in arquivos_removidos:
+                nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                if info_evento:
+                    mensagem = (
+                        f"📄 **Usuário:** {info_evento['usuario']}\n"
+                        f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                        f"🕒 **Data:** {info_evento['data']}"
+                    )
+                else:
+                    mensagem = (
+                        f"📄 **Usuário:** Desconhecido\n"
+                        f"🛠 **Alteração:** Deletou `{nome_arquivo}`\n"
+                        f"🕒 **Data:** Desconhecida"
+                    )
+
+                if canal:
+                    await canal.send(mensagem)
+
+            # Verifica arquivos modificados
+            arquivos_comuns = set(arquivos_anteriores) & set(arquivos_atuais)
+            for arquivo in arquivos_comuns:
+                if arquivos_anteriores[arquivo] != arquivos_atuais[arquivo]:
+                    nome_arquivo = os.path.relpath(arquivo, CAMINHO_PASTA)
+                    info_evento = ultimos_eventos.pop(nome_arquivo, None)
+
+                    if info_evento:
+                        mensagem = (
+                            f"📄 **Usuário:** {info_evento['usuario']}\n"
+                            f"🛠 **Alteração:** {info_evento['acao']} `{nome_arquivo}`\n"
+                            f"🕒 **Data:** {info_evento['data']}"
+                        )
+                    else:
+                        mensagem = (
+                            f"📄 **Usuário:** Desconhecido\n"
+                            f"🛠 **Alteração:** Alterou `{nome_arquivo}`\n"
+                            f"🕒 **Data:** Desconhecida"
+                        )
+
+                    if canal:
+                        await canal.send(mensagem)
+
+            arquivos_anteriores = arquivos_atuais
+
+        except Exception as e:
+            print(f"Erro ao monitorar a pasta: {e}")
+
+async def interpretar_evento(evento: str):
+    """Interpreta um evento do audit log"""
+    if 'pasta_dados' not in evento:
+        return
+
+    usuario_id = extrair_valor(evento, 'UID')
+
+    if usuario_id in ("0", "unset", "Desconhecido"):
+        usuario_id = extrair_valor(evento, 'AUID')
+
+    usuario_nome = traduzir_uid(usuario_id)
+    syscall = extrair_valor(evento, 'SYSCALL')
+    arquivo = extrair_valor(evento, 'name')
+    data_hora = extrair_data(evento)
+
+    if not arquivo or arquivo == 'unknown':
+        return
+
+    if syscall == 'openat' and 'O_CREAT' in evento:
+        alteracao = "Criou"
+    elif syscall == 'unlinkat':
+        alteracao = "Deletou"
+    elif syscall == 'renameat':
+        alteracao = "Renomeou/Moveu"
+    elif syscall == 'setxattr':
+        alteracao = "Alterou"
     else:
-        await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
-    
+        return  # Ignora syscalls irrelevantes
+
+    ultimos_eventos[arquivo] = {
+        "usuario": usuario_nome,
+        "acao": alteracao,
+        "data": data_hora
+    }
+
+async def monitorar_audit_log():
+    """Monitora o log de auditoria do sistema"""
+    await bot.wait_until_ready()
+    path_log = '/var/log/audit/audit.log'
+
+    with open(path_log, 'r') as f:
+        f.seek(0, os.SEEK_END)
+        evento_atual = ""
+        ultimo_audit_id = None
+
+        while True:
+            linha = f.readline()
+            if not linha:
+                await asyncio.sleep(0.5)
+                continue
+
+            if 'type=SYSCALL' in linha:
+                try:
+                    audit_inicio = linha.index('audit(') + 6
+                    audit_fim = linha.index(':', audit_inicio)
+                    audit_id = linha[audit_inicio:audit_fim]
+                except:
+                    audit_id = None
+
+                if audit_id != ultimo_audit_id and evento_atual:
+                    await interpretar_evento(evento_atual)
+                    evento_atual = ""
+
+                ultimo_audit_id = audit_id
+
+            evento_atual += linha
+
+# =============================================
+# Eventos do Bot
+# =============================================
+
+@bot.event
+async def on_ready():
+    print(f"✅ Bot conectado como {bot.user}")
+    try:
+        bot.add_view(TicketButtonView())
+        bot.add_view(SugestaoView())
+        bot.loop.create_task(verificar_diariamente())
+    except Exception as e:
+        print(f"⚠️ Erro ao adicionar Views: {e}")
+
+    try:
+        bot.loop.create_task(monitorar_audit_log())
+        bot.loop.create_task(monitorar_pasta())
+    except Exception as e:
+        print(f"⚠️ Erro ao criar Tasks: {e}")
+
+@bot.event
+async def on_member_join(member):
+    role_id = auto_roles.get(str(member.guild.id))
+    if role_id:
+        role = member.guild.get_role(role_id)
+        if role:
+            await member.add_roles(role)
+            print(f"✅ Cargo {role.name} atribuído a {member.name}")
+
+@bot.event
+async def on_command_completion(ctx):
+    salvar_dados()
+
+@bot.event
+async def on_guild_join(guild):
+    salvar_dados()
+
+@bot.event
+async def on_guild_remove(guild):
+    auto_roles.pop(str(guild.id), None)
+    ticket_response_channels.pop(str(guild.id), None)
+    mention_roles.pop(str(guild.id), None)
+    sugestao_channels.pop(str(guild.id), None)
+    test_channels.pop(str(guild.id), None)
+    salvar_dados()
+
+# =============================================
+# Comandos Administrativos - Cargo e Ticket
+# =============================================
+
+@bot.command(aliases=["cargos"])
+@commands.has_permissions(administrator=True)
+async def cargo(ctx):
+    """Define o cargo automático para novos membros"""
+    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
+        return
+
+    class RoleSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o cargo automático", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            selected_role_id = int(self.values[0])
+            auto_roles[str(ctx.guild.id)] = selected_role_id
+            salvar_dados()
+            role = ctx.guild.get_role(selected_role_id)
+            await interaction.response.send_message(f"✅ Cargo automático configurado para: **{role.name}**", ephemeral=True)
+
+    view = View()
+    view.add_item(RoleSelect())
+    await ctx.send("👥 Selecione o cargo automático:", view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setcargo(ctx):
+    """Define o cargo que será mencionado nos tickets"""
+    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
+        return
+
+    class MentionRoleSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o cargo para mencionar nos tickets", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            selected = int(self.values[0])
+            mention_roles[str(ctx.guild.id)] = selected
+            salvar_dados()
+            role = ctx.guild.get_role(selected)
+            await interaction.response.send_message(f"📌 Cargo a ser mencionado nos tickets definido como: **{role.mention}**", ephemeral=True)
+
+    view = View()
+    view.add_item(MentionRoleSelect())
+    await ctx.send("🔣 Selecione o cargo que será mencionado nos tickets:", view=view)
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ticket(ctx):
+    """Configura o canal para envio de tickets e cria o botão"""
+    all_channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+    if not all_channels:
+        await ctx.send("❌ Não há canais disponíveis para seleção.")
+        return
+
+    per_page = 25
+    total_pages = ceil(len(all_channels) / per_page)
+
+    class ChannelSelect(Select):
+        def __init__(self, page=0):
+            self.page = page
+            start = page * per_page
+            end = start + per_page
+            options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in all_channels[start:end]]
+            super().__init__(placeholder=f"Página {page + 1} de {total_pages}", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            selected_channel_id = int(self.values[0])
+            ticket_response_channels[str(ctx.guild.id)] = selected_channel_id
+            await interaction.response.send_message(f"✅ Canal de envio configurado para <#{selected_channel_id}>.", ephemeral=True)
+            await ctx.send("📉 Solicite seu cargo abaixo:", view=TicketButtonView())
+
+    class ChannelSelectionView(View):
+        def __init__(self):
+            super().__init__(timeout=60)
+            self.page = 0
+            self.select = ChannelSelect(self.page)
+            self.add_item(self.select)
+
+            if total_pages > 1:
+                self.prev = Button(label="⏪ Anterior", style=discord.ButtonStyle.secondary)
+                self.next = Button(label="⏩ Próximo", style=discord.ButtonStyle.secondary)
+                self.prev.callback = self.go_prev
+                self.next.callback = self.go_next
+                self.add_item(self.prev)
+                self.add_item(self.next)
+
+        async def go_prev(self, interaction):
+            if self.page > 0:
+                self.page -= 1
+                await self.update(interaction)
+
+        async def go_next(self, interaction):
+            if self.page < total_pages - 1:
+                self.page += 1
+                await self.update(interaction)
+
+        async def update(self, interaction):
+            self.clear_items()
+            self.select = ChannelSelect(self.page)
+            self.add_item(self.select)
+            if total_pages > 1:
+                self.add_item(self.prev)
+                self.add_item(self.next)
+            await interaction.response.edit_message(view=self)
+
+    await ctx.send("📌 Selecione o canal para onde os tickets serão enviados:", view=ChannelSelectionView())
+
+# =============================================
+# Comandos para Sugestões/Reclamações
+# =============================================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def reclamacao(ctx):
+    """Configura o sistema de sugestões/reclamações"""
+    canais = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+    options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in canais[:25]]
+
+    class CanalSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Escolha onde as mensagens anônimas serão enviadas", options=options)
+
+        async def callback(self, interaction):
+            canal_id = int(self.values[0])
+            sugestao_channels[str(ctx.guild.id)] = canal_id
+            await interaction.response.send_message("✅ Canal de destino configurado!", ephemeral=True)
+            await ctx.send(
+                "**📜 Envie sua sugestão ou reclamação de forma anônima. Ninguém saberá que foi você.**",
+                view=SugestaoView()
+            )
+
+    view = View()
+    view.add_item(CanalSelect())
+    await ctx.send("🔹 Escolha o canal que vai receber as sugestões/reclamações:", view=view)
+
+# =============================================
+# Comandos de Gerenciamento do Servidor
+# =============================================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setcargo(ctx):
+    """Define qual cargo será mencionado nas mensagens do ticket."""
+    roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+    options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25] if r.name.strip()]
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado.")
+        return
+
+    class MentionRoleSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o cargo para mencionar nos tickets", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            selected = int(self.values[0])
+            mention_roles[str(ctx.guild.id)] = selected
+            salvar_dados()
+            role = ctx.guild.get_role(selected)
+            await interaction.response.send_message(f"📌 Cargo a ser mencionado nos tickets definido como: **{role.mention}**", ephemeral=True)
+
+    view = View()
+    view.add_item(MentionRoleSelect())
+    await ctx.send("🔣 Selecione o cargo que será mencionado nos tickets:", view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ticket(ctx):
+    """Configura o sistema de tickets."""
     all_channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
     if not all_channels:
         await ctx.send("❌ Não há canais disponíveis para seleção.")
@@ -641,6 +792,7 @@ async def ticket(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def reclamacao(ctx):
+    """Configura o sistema de sugestões/reclamações anônimas."""
     canais = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
     options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in canais[:25]]
 
@@ -661,33 +813,10 @@ async def reclamacao(ctx):
     view.add_item(CanalSelect())
     await ctx.send("🔹 Escolha o canal que vai receber as sugestões/reclamações:", view=view)
 
-class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
-    mensagem = TextInput(label="Escreva aqui", style=TextStyle.paragraph)
-
-    async def on_submit(self, interaction):
-        canal_id = sugestao_channels.get(str(interaction.guild.id))
-        canal = bot.get_channel(canal_id)
-        if canal:
-            embed = discord.Embed(title="📢 Sugestão/Reclamação Anônima", description=self.mensagem.value, color=discord.Color.orange())
-            embed.set_footer(text="Enviado anonimamente")
-            await canal.send(embed=embed)
-        await interaction.response.send_message("✅ Sua mensagem foi enviada de forma anônima!", ephemeral=True)
-
-class SugestaoButton(Button):
-    def __init__(self):
-        super().__init__(label="Enviar sugestão/reclamação", emoji="💡", style=discord.ButtonStyle.secondary, custom_id="sugestao_button")
-
-    async def callback(self, interaction):
-        await interaction.response.send_modal(SugestaoModal())
-
-class SugestaoView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(SugestaoButton())
-
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def clear(ctx):
+    """Limpa todas as mensagens do canal atual."""
     class ConfirmarLimpeza(Button):
         def __init__(self):
             super().__init__(label="Sim, limpar!", style=discord.ButtonStyle.danger)
@@ -710,9 +839,14 @@ async def clear(ctx):
     view.add_item(ConfirmarLimpeza())
     mensagem = await ctx.send("⚠️ Tem certeza que deseja limpar todas as mensagens deste canal?", view=view)
 
+# =============================================
+# Comandos do Sistema de Mensagens
+# =============================================
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def tipos(ctx):
+    """Lista todos os tipos de mensagem cadastrados."""
     if not tipos_mensagem:
         await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado.")
         return
@@ -734,6 +868,7 @@ async def tipos(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def criartipo(ctx):
+    """Cria um novo tipo de mensagem."""
     class CriarTipoModal(Modal, title="Criar Novo Tipo de Mensagem"):
         nome = TextInput(label="Nome do Tipo", placeholder="Ex: Alerta Importante", style=TextStyle.short)
         emoji = TextInput(label="Emoji", placeholder="Ex: 🚨", style=TextStyle.short)
@@ -762,6 +897,7 @@ async def criartipo(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def apagatipo(ctx):
+    """Apaga um tipo de mensagem cadastrado."""
     if not tipos_mensagem:
         await ctx.send("⚠️ Nenhum tipo de mensagem cadastrado para apagar.")
         return
@@ -788,6 +924,7 @@ async def apagatipo(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setcargomensagem(ctx):
+    """Define quais cargos poderão utilizar o comando !mensagem."""
     roles = [
         r for r in ctx.guild.roles
         if not r.is_bot_managed() and r.name.strip() and r.name != "@everyone"
@@ -827,7 +964,57 @@ async def setcargomensagem(ctx):
         pass
 
 @bot.command()
+@commands.has_permissions(administrator=True)
+async def removecargomensagem(ctx):
+    """Remove um cargo que pode utilizar o !mensagem."""
+    guild_id = str(ctx.guild.id)
+    cargos_autorizados = cargo_autorizado_mensagem.get(guild_id, [])
+
+    if not cargos_autorizados:
+        await ctx.send("⚠️ Nenhum cargo autorizado para remover.", delete_after=5)
+        return
+
+    guild_roles = ctx.guild.roles
+    options = []
+    for role_id in cargos_autorizados:
+        role = discord.utils.get(guild_roles, id=role_id)
+        if role and role.name.strip() and role.name != "@everyone":
+            nome_limpo = role.name.strip()
+            options.append(
+                SelectOption(label=nome_limpo[:100], value=str(role.id))
+            )
+
+    options = options[:25]  # Limita a 25 para não dar erro
+
+    if not options:
+        await ctx.send("⚠️ Nenhum cargo válido encontrado para remover.", delete_after=5)
+        return
+
+    class RemoverCargoMensagemSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione o cargo para remover da permissão", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            role_id = int(self.values[0])
+            if role_id in cargo_autorizado_mensagem.get(guild_id, []):
+                cargo_autorizado_mensagem[guild_id].remove(role_id)
+                salvar_dados()
+                await interaction.response.send_message("✅ Cargo removido da lista de autorizados para `!mensagem`.", ephemeral=True)
+            else:
+                await interaction.response.send_message("⚠️ Cargo não encontrado na lista de autorizados.", ephemeral=True)
+
+    view = View(timeout=60)
+    view.add_item(RemoverCargoMensagemSelect())
+    await ctx.send("🔹 Selecione o cargo que você deseja remover da autorização do `!mensagem`:", view=view)
+
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+@bot.command()
 async def mensagem(ctx):
+    """Envia uma mensagem personalizada escolhendo o tipo, imagem e menção."""
     guild_id = str(ctx.guild.id)
     autorizado = False
 
@@ -943,56 +1130,100 @@ async def mensagem(ctx):
     except:
         pass
 
-@bot.command("")
+# =============================================
+# Comandos do Sistema de Aniversários
+# =============================================
+
+@bot.command()
 @commands.has_permissions(administrator=True)
-async def removecargomensagem(ctx):
-    guild_id = str(ctx.guild.id)
-    cargos_autorizados = cargo_autorizado_mensagem.get(guild_id, [])
+async def adicionar_aniversario(ctx):
+    """Adiciona um aniversariante à lista via pop-up."""
+    
+    class AdicionarAniversarioModal(Modal, title="Adicionar Aniversariante"):
+        user_id = TextInput(label="ID do Usuário", placeholder="Ex: 1234567890", style=TextStyle.short)
+        nome = TextInput(label="Nome", placeholder="Ex: João Silva", style=TextStyle.short)
+        data_nascimento = TextInput(label="Data de Nascimento (YYYY-MM-DD)", placeholder="Ex: 2000-03-01", style=TextStyle.short)
+        link_foto = TextInput(label="Link da Foto (Google Drive)", placeholder="Ex: https://drive.google.com/...", style=TextStyle.short)
+        
+        async def on_submit(self, interaction: discord.Interaction):
+            user_id = self.user_id.value.strip()
+            nome = self.nome.value.strip()
+            data_nascimento = self.data_nascimento.value.strip()
+            link_foto = self.link_foto.value.strip()
+            
+            if not user_id or not nome or not data_nascimento or not link_foto:
+                await interaction.response.send_message("⚠️ Todos os campos são obrigatórios.", ephemeral=True)
+                return
 
-    if not cargos_autorizados:
-        await ctx.send("⚠️ Nenhum cargo autorizado para remover.", delete_after=5)
+            try:
+                datetime.strptime(data_nascimento, "%Y-%m-%d")
+            except ValueError:
+                await interaction.response.send_message("⚠️ A data deve estar no formato **YYYY-MM-DD**.", ephemeral=True)
+                return
+            
+            aniversarios = carregar_aniversarios()
+
+            aniversarios[user_id] = {
+                "nome": nome,
+                "data_nascimento": data_nascimento,
+                "link_foto": link_foto
+            }
+
+            salvar_aniversarios(aniversarios)
+
+            await interaction.response.send_message(f"✅ O aniversariante {nome} foi adicionado com sucesso!", ephemeral=True)
+    
+    modal = AdicionarAniversarioModal()
+    await ctx.send("📅 Preencha as informações do aniversariante:", view=modal)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def simular_aniversario(ctx, user_id: int):
+    """Simula o envio de uma imagem de aniversário com link de foto."""
+    
+    aniversarios = carregar_aniversarios()
+
+    if str(user_id) not in aniversarios:
+        await ctx.send(f"⚠️ O usuário com ID {user_id} não está na lista de aniversariantes.")
         return
-
-    guild_roles = ctx.guild.roles
-    options = []
-    for role_id in cargos_autorizados:
-        role = discord.utils.get(guild_roles, id=role_id)
-        if role and role.name.strip() and role.name != "@everyone":
-            nome_limpo = role.name.strip()
-            options.append(
-                SelectOption(label=nome_limpo[:100], value=str(role.id))
-            )
-
-    options = options[:25]  # Limita a 25 para não dar erro
-
-    if not options:
-        await ctx.send("⚠️ Nenhum cargo válido encontrado para remover.", delete_after=5)
+    
+    info = aniversarios[str(user_id)]
+    
+    canal = bot.get_channel(CANAL_ANIVERSARIO_ID)
+    
+    link_imagem = info.get("link_foto", None)
+    
+    if not link_imagem:
+        await ctx.send("⚠️ Não há link de foto associado a este aniversariante.")
         return
+    
+    membro = bot.get_guild(1359193389022707823).get_member(int(user_id))  # Substitua com o ID correto da guilda
+    if membro:
+        mention = f"{membro.mention} <@&1359579655702839458>"  # Substitua o ID do cargo conforme necessário
+        
+        embed = discord.Embed(
+            title=f"🎉🎂 **Feliz Aniversário, {info['nome']}!** 🎂🎉",
+            description="",
+            color=discord.Color.blurple()
+        )
+        embed.set_image(url=link_imagem)  # Adiciona a imagem ao embed
+        await canal.send(mention, embed=embed)
+        await ctx.send(f"✅ A mensagem de aniversário com imagem para {info['nome']} foi simulada com sucesso!")
+    else:
+        await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
 
-    class RemoverCargoMensagemSelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Selecione o cargo para remover da permissão", options=options)
+# =============================================
+# Comandos de Utilidade
+# =============================================
 
-        async def callback(self, interaction: discord.Interaction):
-            role_id = int(self.values[0])
-            if role_id in cargo_autorizado_mensagem.get(guild_id, []):
-                cargo_autorizado_mensagem[guild_id].remove(role_id)
-                salvar_dados()
-                await interaction.response.send_message("✅ Cargo removido da lista de autorizados para `!mensagem`.", ephemeral=True)
-            else:
-                await interaction.response.send_message("⚠️ Cargo não encontrado na lista de autorizados.", ephemeral=True)
-
-    view = View(timeout=60)
-    view.add_item(RemoverCargoMensagemSelect())
-    await ctx.send("🔹 Selecione o cargo que você deseja remover da autorização do `!mensagem`:", view=view)
-
-    try:
-        await ctx.message.delete()
-    except:
-        pass
+@bot.command()
+async def ping(ctx):
+    """Verifica se o bot está funcional e mostra o ping."""
+    await ctx.send(f"🏓 Pong! Latência: `{round(bot.latency * 1000)}ms`")
 
 @bot.command(name="ajuda")
 async def ajuda(ctx):
+    """Mostra a lista de comandos disponíveis."""
     embed = discord.Embed(
         title="📖 Comandos disponíveis",
         color=discord.Color.green(),
@@ -1013,16 +1244,23 @@ async def ajuda(ctx):
 
     await ctx.send(embed=embed)
 
+# =============================================
+# Eventos de Gerenciamento de Dados
+# =============================================
+
 @bot.event
 async def on_command_completion(ctx):
+    """Salva os dados após cada comando ser executado."""
     salvar_dados()
 
 @bot.event
 async def on_guild_join(guild):
+    """Salva os dados quando o bot entra em um novo servidor."""
     salvar_dados()
 
 @bot.event
 async def on_guild_remove(guild):
+    """Remove dados do servidor quando o bot é removido."""
     auto_roles.pop(str(guild.id), None)
     ticket_response_channels.pop(str(guild.id), None)
     mention_roles.pop(str(guild.id), None)
@@ -1030,19 +1268,27 @@ async def on_guild_remove(guild):
     test_channels.pop(str(guild.id), None)
     salvar_dados()
 
+# =============================================
+# Inicialização do Bot
+# =============================================
+
 import atexit
 
 def remove_lockfile():
+    """Remove o arquivo de lock na saída do programa."""
     if os.path.exists(LOCKFILE):
         os.remove(LOCKFILE)
 
 atexit.register(remove_lockfile)
 
-from dotenv import load_dotenv
-
+# Carrega as configurações e dados
 load_dotenv()
 carregar_dados() 
 carregar_tipos_mensagem()  
 
+# Token do bot (carregado do arquivo .env)
 TOKEN = os.getenv("DISCORD_TOKEN")
+verificar_instancia_unica()
+
+# Inicializa o bot
 bot.run(TOKEN)
