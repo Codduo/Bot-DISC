@@ -1041,7 +1041,6 @@ atexit.register(remove_lockfile)
 from dotenv import load_dotenv
 
 load_dotenv()
-verificar_instancia_unica()
 carregar_dados() 
 carregar_tipos_mensagem()  
 
