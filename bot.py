@@ -1,3 +1,4 @@
+# === IMPORTAÇÕES E CONFIGURAÇÕES ===
 import discord
 from discord.ext import commands, tasks
 from discord import TextStyle
@@ -11,6 +12,7 @@ import pwd
 import sys
 import json
 
+# === SISTEMA DE ANIVERSÁRIOS ===
 def carregar_aniversarios():
     if os.path.exists("aniversarios.json"):
         with open("aniversarios.json", "r", encoding="utf-8") as f:
@@ -68,6 +70,7 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# === ESTRUTURAS DE DADOS E CARREGAMENTO ===
 auto_roles = {}
 ticket_response_channels = {}
 mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
@@ -82,6 +85,7 @@ import os
 
 import logging
 
+# === CONTROLE DE ARQUIVO LOCK ===
 LOCKFILE = "/tmp/bot_bmz.lock"
 
 if os.path.exists(LOCKFILE):
@@ -91,6 +95,7 @@ if os.path.exists(LOCKFILE):
 with open(LOCKFILE, "w") as f:
     f.write(str(os.getpid()))
 
+# === CONFIGURAÇÃO DE LOG ===
 logging.basicConfig(
     level=logging.INFO,  # Nível de log: DEBUG, INFO, WARNING, ERROR, CRITICAL
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -122,6 +127,7 @@ async def confirmar_estabilidade(arquivo):
 
     return mod_time_inicial == mod_time_final
 
+# === MONITORAMENTO DE PASTA ===
 async def monitorar_pasta():
     global arquivos_anteriores
 
@@ -334,6 +340,7 @@ async def on_member_join(member):
             await member.add_roles(role)
             print(f"✅ Cargo {role.name} atribuído a {member.name}")
 
+# === COMANDOS DE CARGOS ===
 @bot.command(aliases=["cargos"])
 @commands.has_permissions(administrator=True)
 async def cargo(ctx):
@@ -359,6 +366,7 @@ async def cargo(ctx):
     view.add_item(RoleSelect())
     await ctx.send("👥 Selecione o cargo automático:", view=view)
 
+# === EVENTOS DO BOT ===
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
@@ -375,6 +383,7 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ Erro ao criar Tasks: {e}")
 
+# === FUNÇÕES UTILITÁRIAS ===
 def extrair_valor(texto, campo):
     try:
         inicio = texto.index(f'{campo}=') + len(campo) + 1
@@ -398,6 +407,7 @@ def extrair_data(texto):
     except Exception:
         return "Data desconhecida"
 
+# === MONITORAMENTO DE AUDIT LOG ===
 async def monitorar_audit_log():
     await bot.wait_until_ready()
     path_log = '/var/log/audit/audit.log'
@@ -577,6 +587,7 @@ async def simular_aniversario(ctx, user_id: int):
     else:
         await ctx.send(f"⚠️ Não foi possível encontrar o membro com ID {user_id}.")
     
+# === SISTEMA DE TICKETS ===
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ticket(ctx):
@@ -638,6 +649,7 @@ async def ticket(ctx):
 
     await ctx.send("📌 Selecione o canal para onde os tickets serão enviados:", view=ChannelSelectionView())
 
+# === SISTEMA DE SUGESTÕES ===
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def reclamacao(ctx):
@@ -685,6 +697,7 @@ class SugestaoView(View):
         super().__init__(timeout=None)
         self.add_item(SugestaoButton())
 
+# === COMANDO DE LIMPEZA ===
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def clear(ctx):
@@ -710,6 +723,7 @@ async def clear(ctx):
     view.add_item(ConfirmarLimpeza())
     mensagem = await ctx.send("⚠️ Tem certeza que deseja limpar todas as mensagens deste canal?", view=view)
 
+# === TIPOS DE MENSAGEM ===
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def tipos(ctx):
@@ -826,6 +840,7 @@ async def setcargomensagem(ctx):
     except:
         pass
 
+# === SISTEMA DE MENSAGENS ===
 @bot.command()
 async def mensagem(ctx):
     guild_id = str(ctx.guild.id)
@@ -991,6 +1006,7 @@ async def removecargomensagem(ctx):
     except:
         pass
 
+# === COMANDO DE AJUDA ===
 @bot.command(name="ajuda")
 async def ajuda(ctx):
     embed = discord.Embed(
@@ -1044,5 +1060,6 @@ load_dotenv()
 carregar_dados() 
 carregar_tipos_mensagem()  
 
+# === EXECUÇÃO FINAL DO BOT ===
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
