@@ -9,6 +9,7 @@ import logging
 import os
 import json
 import sys
+import signal
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -40,48 +41,92 @@ sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
 ticket_categories = {}  # guild_id: category_id onde os tickets serão criados
 ticket_support_roles = {}  # guild_id: role_id do cargo de suporte
 
-# ===== LOCK FILE MANAGEMENT =====
+# Variável para controlar se as views já foram adicionadas
+views_added = False
+
+# ===== IMPROVED LOCK FILE MANAGEMENT =====
 def check_lock_file():
+    """Verifica e cria lock file com melhor detecção de processos."""
     if os.path.exists(LOCKFILE):
         try:
             with open(LOCKFILE, "r") as f:
-                old_pid = int(f.read().strip())
+                content = f.read().strip()
+                if not content:
+                    # Arquivo vazio, remover
+                    os.remove(LOCKFILE)
+                else:
+                    old_pid = int(content)
             
-            # Verificar se o processo ainda existe
+            # Verificar se o processo ainda existe (método mais robusto)
             try:
-                os.kill(old_pid, 0)  # Não mata, apenas verifica se existe
-                print("⚠️ Já existe uma instância do bot rodando. Abortando.")
-                print(f"PID da instância existente: {old_pid}")
-                sys.exit(1)
-            except (OSError, ProcessLookupError):
-                # Processo não existe mais, remover lock file órfão
+                # No Linux/Mac, verificar se o processo existe
+                if os.name != 'nt':  # Unix-like systems
+                    os.kill(old_pid, 0)
+                else:  # Windows
+                    import psutil
+                    if psutil.pid_exists(old_pid):
+                        process = psutil.Process(old_pid)
+                        # Verificar se é realmente nosso bot
+                        if 'python' in process.name().lower():
+                            print("⚠️ Já existe uma instância do bot rodando.")
+                            print(f"PID da instância existente: {old_pid}")
+                            print("❌ Para forçar a execução, delete o arquivo:", LOCKFILE)
+                            sys.exit(1)
+                    
                 print("🧹 Removendo arquivo de lock órfão...")
                 os.remove(LOCKFILE)
+                        
+            except (OSError, ProcessLookupError, ImportError):
+                # Processo não existe mais ou erro de importação
+                print("🧹 Removendo arquivo de lock órfão...")
+                if os.path.exists(LOCKFILE):
+                    os.remove(LOCKFILE)
+                    
         except (ValueError, FileNotFoundError):
-            # Arquivo corrompido ou inexistente, remover
+            # Arquivo corrompido, remover
             if os.path.exists(LOCKFILE):
                 os.remove(LOCKFILE)
     
     # Criar diretório se não existir
     os.makedirs(os.path.dirname(LOCKFILE), exist_ok=True)
     
+    # Criar lock file com PID
     with open(LOCKFILE, "w") as f:
         f.write(str(os.getpid()))
     print(f"✅ Lock file criado. PID: {os.getpid()}")
 
 def remove_lockfile():
+    """Remove o lock file com verificação adicional."""
     if os.path.exists(LOCKFILE):
         try:
-            os.remove(LOCKFILE)
-            print("🧹 Lock file removido.")
-        except:
-            pass
+            # Verificar se o PID no arquivo é nosso
+            with open(LOCKFILE, "r") as f:
+                stored_pid = int(f.read().strip())
+            
+            if stored_pid == os.getpid():
+                os.remove(LOCKFILE)
+                print("🧹 Lock file removido com sucesso.")
+            else:
+                print("⚠️ Lock file pertence a outro processo, não removido.")
+        except Exception as e:
+            print(f"⚠️ Erro ao remover lock file: {e}")
 
+# Registrar função de limpeza
 import atexit
 atexit.register(remove_lockfile)
 
+# Tratar sinais para limpeza adequada
+def signal_handler(signum, frame):
+    print(f"\n🛑 Sinal {signum} recebido. Encerrando bot...")
+    remove_lockfile()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 # ===== DATA MANAGEMENT FUNCTIONS =====
 def salvar_dados():
+    """Salva dados com proteção contra corrupção."""
     dados = {
         "auto_roles": auto_roles,
         "ticket_response_channels": ticket_response_channels,
@@ -93,22 +138,31 @@ def salvar_dados():
 
     temp_file = "dados_servidor_temp.json"
     final_file = "dados_servidor.json"
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    os.replace(temp_file, final_file)
+    
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(dados, f, indent=4, ensure_ascii=False)
+        os.replace(temp_file, final_file)
+    except Exception as e:
+        print(f"⚠️ Erro ao salvar dados: {e}")
 
 def carregar_dados():
-    if os.path.exists("dados_servidor.json"):
-        with open("dados_servidor.json", "r", encoding="utf-8") as f:
-            conteudo = f.read().strip()
-            if conteudo:
-                dados = json.loads(conteudo)
-                auto_roles.update(dados.get("auto_roles", {}))
-                ticket_response_channels.update(dados.get("ticket_response_channels", {}))
-                mention_roles.update(dados.get("mention_roles", {}))
-                sugestao_channels.update(dados.get("sugestao_channels", {}))
-                ticket_categories.update(dados.get("ticket_categories", {}))
-                ticket_support_roles.update(dados.get("ticket_support_roles", {}))
+    """Carrega dados com tratamento de erro."""
+    try:
+        if os.path.exists("dados_servidor.json"):
+            with open("dados_servidor.json", "r", encoding="utf-8") as f:
+                conteudo = f.read().strip()
+                if conteudo:
+                    dados = json.loads(conteudo)
+                    auto_roles.update(dados.get("auto_roles", {}))
+                    ticket_response_channels.update(dados.get("ticket_response_channels", {}))
+                    mention_roles.update(dados.get("mention_roles", {}))
+                    sugestao_channels.update(dados.get("sugestao_channels", {}))
+                    ticket_categories.update(dados.get("ticket_categories", {}))
+                    ticket_support_roles.update(dados.get("ticket_support_roles", {}))
+                    print("✅ Dados carregados com sucesso.")
+    except Exception as e:
+        print(f"⚠️ Erro ao carregar dados: {e}")
 
 # ===== TICKET SYSTEM (ORIGINAL) =====
 class TicketModal(Modal, title="Solicitar Cargo"):
@@ -328,14 +382,22 @@ class SugestaoView(View):
 # ===== BOT EVENTS =====
 @bot.event
 async def on_ready():
+    global views_added
     print(f"✅ Bot conectado como {bot.user}")
-    try:
-        bot.add_view(TicketButtonView())
-        bot.add_view(SugestaoView())
-        bot.add_view(TicketSupportView())
-        bot.add_view(TicketCloseView())
-    except Exception as e:
-        print(f"⚠️ Erro ao adicionar Views: {e}")
+    
+    # Adicionar views apenas uma vez
+    if not views_added:
+        try:
+            bot.add_view(TicketButtonView())
+            bot.add_view(SugestaoView())
+            bot.add_view(TicketSupportView())
+            bot.add_view(TicketCloseView())
+            views_added = True
+            print("✅ Views adicionadas com sucesso.")
+        except Exception as e:
+            print(f"⚠️ Erro ao adicionar Views: {e}")
+    else:
+        print("ℹ️ Views já foram adicionadas anteriormente.")
 
 @bot.event
 async def on_member_join(member):
@@ -343,8 +405,11 @@ async def on_member_join(member):
     if role_id:
         role = member.guild.get_role(role_id)
         if role:
-            await member.add_roles(role)
-            print(f"✅ Cargo {role.name} atribuído a {member.name}")
+            try:
+                await member.add_roles(role)
+                print(f"✅ Cargo {role.name} atribuído a {member.name}")
+            except Exception as e:
+                print(f"⚠️ Erro ao atribuir cargo: {e}")
 
 @bot.event
 async def on_command_completion(ctx):
@@ -634,15 +699,111 @@ async def ajuda(ctx):
     embed.add_field(name="!clear", value="Limpa todas as mensagens do canal atual.", inline=False)
     embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
     embed.add_field(name="!ajuda", value="Mostra esta lista de comandos disponíveis.", inline=False)
+    embed.add_field(name="!status", value="Verifica o status do bot e se há múltiplas instâncias.", inline=False)
 
     await ctx.send(embed=embed)
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def status(ctx):
+    """Verifica o status do bot e informações do processo."""
+    embed = discord.Embed(
+        title="🤖 Status do Bot",
+        color=discord.Color.blue(),
+        timestamp=datetime.now()
+    )
+    
+    # Informações básicas
+    embed.add_field(name="📊 Status", value="✅ Online", inline=True)
+    embed.add_field(name="🏓 Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
+    embed.add_field(name="🆔 PID", value=str(os.getpid()), inline=True)
+    
+    # Informações do servidor
+    embed.add_field(name="🏠 Servidores", value=len(bot.guilds), inline=True)
+    embed.add_field(name="👥 Usuários", value=len(bot.users), inline=True)
+    embed.add_field(name="📋 Views Ativas", value="✅ Carregadas" if views_added else "❌ Não carregadas", inline=True)
+    
+    # Verificar lock file
+    lock_status = "🔒 Ativo" if os.path.exists(LOCKFILE) else "❌ Não encontrado"
+    embed.add_field(name="🔐 Lock File", value=lock_status, inline=True)
+    
+    # Informações de configuração do servidor atual
+    guild_id = str(ctx.guild.id)
+    configs = []
+    
+    if guild_id in auto_roles:
+        role = ctx.guild.get_role(auto_roles[guild_id])
+        configs.append(f"• Cargo automático: {role.name if role else 'Cargo não encontrado'}")
+    
+    if guild_id in ticket_categories:
+        category = ctx.guild.get_channel(ticket_categories[guild_id])
+        configs.append(f"• Categoria tickets: {category.name if category else 'Categoria não encontrada'}")
+    
+    if guild_id in ticket_response_channels:
+        channel = bot.get_channel(ticket_response_channels[guild_id])
+        configs.append(f"• Canal tickets: {channel.name if channel else 'Canal não encontrado'}")
+    
+    if guild_id in sugestao_channels:
+        channel = bot.get_channel(sugestao_channels[guild_id])
+        configs.append(f"• Canal sugestões: {channel.name if channel else 'Canal não encontrado'}")
+    
+    config_text = "\n".join(configs) if configs else "Nenhuma configuração ativa"
+    embed.add_field(name="⚙️ Configurações do Servidor", value=config_text, inline=False)
+    
+    embed.set_footer(text=f"Bot iniciado em {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}")
+    
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def forceunlock(ctx):
+    """Remove o lock file manualmente (use apenas se necessário)."""
+    if os.path.exists(LOCKFILE):
+        try:
+            os.remove(LOCKFILE)
+            await ctx.send("✅ Lock file removido com sucesso.")
+        except Exception as e:
+            await ctx.send(f"❌ Erro ao remover lock file: {e}")
+    else:
+        await ctx.send("ℹ️ Nenhum lock file encontrado.")
+
+# ===== ERROR HANDLING =====
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Você não tem permissão para usar este comando.")
+    elif isinstance(error, commands.CommandNotFound):
+        pass  # Ignorar comandos não encontrados
+    else:
+        print(f"Erro no comando {ctx.command}: {error}")
+        await ctx.send("❌ Ocorreu um erro ao executar o comando.")
+
 # ===== MAIN =====
 if __name__ == "__main__":
-    check_lock_file()
-    carregar_dados()
-    
-    # Carregar token e iniciar o bot
-    load_dotenv()
-    TOKEN = os.getenv("DISCORD_TOKEN")
-    bot.run(TOKEN)
+    try:
+        # Verificar se já existe uma instância rodando
+        check_lock_file()
+        
+        # Carregar dados salvos
+        carregar_dados()
+        
+        # Carregar token
+        load_dotenv()
+        TOKEN = os.getenv("DISCORD_TOKEN")
+        
+        if not TOKEN:
+            print("❌ Token do Discord não encontrado no arquivo .env")
+            sys.exit(1)
+        
+        print("🚀 Iniciando bot...")
+        bot.run(TOKEN)
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Bot interrompido pelo usuário.")
+        remove_lockfile()
+    except Exception as e:
+        print(f"❌ Erro fatal: {e}")
+        remove_lockfile()
+        sys.exit(1)
+    finally:
+        remove_lockfile()
