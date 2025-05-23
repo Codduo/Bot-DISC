@@ -37,6 +37,8 @@ auto_roles = {}  # guild_id: role_id
 ticket_response_channels = {}  # guild_id: channel_id
 mention_roles = {}  # guild_id: cargo que será mencionado nos tickets
 sugestao_channels = {}  # guild_id: canal para sugestões/reclamações
+ticket_categories = {}  # guild_id: category_id onde os tickets serão criados
+ticket_support_roles = {}  # guild_id: role_id do cargo de suporte
 
 # ===== LOCK FILE MANAGEMENT =====
 def check_lock_file():
@@ -61,6 +63,8 @@ def salvar_dados():
         "ticket_response_channels": ticket_response_channels,
         "mention_roles": mention_roles,
         "sugestao_channels": sugestao_channels,
+        "ticket_categories": ticket_categories,
+        "ticket_support_roles": ticket_support_roles,
     }
 
     temp_file = "dados_servidor_temp.json"
@@ -79,8 +83,10 @@ def carregar_dados():
                 ticket_response_channels.update(dados.get("ticket_response_channels", {}))
                 mention_roles.update(dados.get("mention_roles", {}))
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
+                ticket_categories.update(dados.get("ticket_categories", {}))
+                ticket_support_roles.update(dados.get("ticket_support_roles", {}))
 
-# ===== TICKET SYSTEM =====
+# ===== TICKET SYSTEM (ORIGINAL) =====
 class TicketModal(Modal, title="Solicitar Cargo"):
     nome = TextInput(label="Nome", placeholder="Digite seu nome completo", style=TextStyle.short)
     cargo = TextInput(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=TextStyle.paragraph)
@@ -122,6 +128,154 @@ class TicketButtonView(View):
         super().__init__(timeout=None)
         self.add_item(TicketButton())
 
+# ===== TICKET SYSTEM COM CANAIS INDIVIDUAIS =====
+class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
+    assunto = TextInput(label="Assunto", placeholder="Descreva brevemente seu problema", style=TextStyle.short)
+    descricao = TextInput(label="Descrição detalhada", placeholder="Explique seu problema em detalhes...", style=TextStyle.paragraph)
+    tipo_suporte = TextInput(label="Tipo de Suporte", placeholder="Ex: Técnico, Financeiro, RH, Geral...", style=TextStyle.short)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild_id = str(interaction.guild.id)
+        category_id = ticket_categories.get(guild_id)
+        support_role_id = ticket_support_roles.get(guild_id)
+        
+        if not category_id:
+            await interaction.response.send_message("❌ Sistema de tickets não configurado. Contate um administrador.", ephemeral=True)
+            return
+            
+        category = interaction.guild.get_channel(category_id)
+        support_role = interaction.guild.get_role(support_role_id) if support_role_id else None
+        
+        if not category:
+            await interaction.response.send_message("❌ Categoria de tickets não encontrada. Contate um administrador.", ephemeral=True)
+            return
+
+        # Criar o canal do ticket
+        ticket_name = f"ticket-{interaction.user.name.lower().replace(' ', '-')}-{interaction.user.discriminator}"
+        
+        # Configurar permissões do canal
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True)
+        }
+        
+        # Adicionar permissões para o cargo de suporte se configurado
+        if support_role:
+            overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True)
+
+        try:
+            ticket_channel = await interaction.guild.create_text_channel(
+                name=ticket_name,
+                category=category,
+                overwrites=overwrites,
+                topic=f"Ticket de {interaction.user.display_name} - {self.tipo_suporte.value}"
+            )
+            
+            # Criar embed com informações do ticket
+            embed = discord.Embed(
+                title="🎫 Novo Ticket de Suporte",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="👤 Usuário", value=interaction.user.mention, inline=True)
+            embed.add_field(name="📝 Assunto", value=self.assunto.value, inline=True)
+            embed.add_field(name="🏷️ Tipo", value=self.tipo_suporte.value, inline=True)
+            embed.add_field(name="📄 Descrição", value=self.descricao.value, inline=False)
+            embed.set_footer(text=f"ID do usuário: {interaction.user.id}")
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Criar botão para fechar ticket
+            close_view = TicketCloseView()
+            
+            # Mensagem de menção + embed
+            mention_text = f"{interaction.user.mention}"
+            if support_role:
+                mention_text += f" {support_role.mention}"
+                
+            await ticket_channel.send(
+                content=f"{mention_text}\n\n**Olá {interaction.user.mention}!** 👋\nSeu ticket foi criado com sucesso. Nossa equipe irá te ajudar em breve.\n\n**Para fechar este ticket, clique no botão abaixo:**",
+                embed=embed,
+                view=close_view
+            )
+            
+            await interaction.response.send_message(f"✅ Seu ticket foi criado! Acesse: {ticket_channel.mention}", ephemeral=True)
+            
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ Não tenho permissão para criar canais. Contate um administrador.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erro ao criar ticket: {str(e)}", ephemeral=True)
+
+class TicketSupportButton(Button):
+    def __init__(self):
+        super().__init__(label="🎫 Abrir Ticket", emoji="🎫", style=discord.ButtonStyle.primary, custom_id="ticket_support_button")
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(TicketSupportModal())
+
+class TicketSupportView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TicketSupportButton())
+
+# ===== SISTEMA PARA FECHAR TICKETS =====
+class TicketCloseView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        
+    @discord.ui.button(label="🔒 Fechar Ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket_button")
+    async def close_ticket(self, interaction: discord.Interaction, button: Button):
+        # Verificar se é o autor do ticket ou tem permissão de gerenciar canais
+        channel_topic = interaction.channel.topic or ""
+        user_id = None
+        
+        # Extrair ID do usuário do tópico ou nome do canal
+        if "Ticket de" in channel_topic:
+            try:
+                # Tentar extrair do footer da primeira mensagem
+                async for message in interaction.channel.history(limit=50, oldest_first=True):
+                    if message.embeds and message.author == interaction.guild.me:
+                        embed = message.embeds[0]
+                        if embed.footer and "ID do usuário:" in embed.footer.text:
+                            user_id = int(embed.footer.text.split("ID do usuário: ")[1])
+                            break
+            except:
+                pass
+        
+        # Verificar permissões
+        has_permission = (
+            interaction.user.id == user_id or 
+            interaction.user.guild_permissions.manage_channels or
+            any(role.id == ticket_support_roles.get(str(interaction.guild.id)) for role in interaction.user.roles)
+        )
+        
+        if not has_permission:
+            await interaction.response.send_message("❌ Você não tem permissão para fechar este ticket.", ephemeral=True)
+            return
+            
+        # Confirmar fechamento
+        confirm_view = ConfirmCloseView()
+        await interaction.response.send_message("⚠️ Tem certeza que deseja fechar este ticket? **Esta ação não pode ser desfeita.**", view=confirm_view, ephemeral=True)
+
+class ConfirmCloseView(View):
+    def __init__(self):
+        super().__init__(timeout=30)
+        
+    @discord.ui.button(label="✅ Sim, fechar", style=discord.ButtonStyle.danger)
+    async def confirm_close(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.send_message("🔒 Fechando ticket em 5 segundos...", ephemeral=True)
+            await asyncio.sleep(5)
+            await interaction.followup.send("**🎫 Ticket fechado com sucesso!**")
+            await asyncio.sleep(2)
+            await interaction.channel.delete(reason="Ticket fechado")
+        except:
+            pass
+            
+    @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancel_close(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_message("✅ Fechamento cancelado.", ephemeral=True)
+
 # ===== SUGGESTION/COMPLAINT SYSTEM =====
 class SugestaoModal(Modal, title="Envie sua sugestão ou reclamação"):
     mensagem = TextInput(label="Escreva aqui", style=TextStyle.paragraph)
@@ -154,6 +308,8 @@ async def on_ready():
     try:
         bot.add_view(TicketButtonView())
         bot.add_view(SugestaoView())
+        bot.add_view(TicketSupportView())
+        bot.add_view(TicketCloseView())
     except Exception as e:
         print(f"⚠️ Erro ao adicionar Views: {e}")
 
@@ -180,6 +336,8 @@ async def on_guild_remove(guild):
     ticket_response_channels.pop(str(guild.id), None)
     mention_roles.pop(str(guild.id), None)
     sugestao_channels.pop(str(guild.id), None)
+    ticket_categories.pop(str(guild.id), None)
+    ticket_support_roles.pop(str(guild.id), None)
     salvar_dados()
 
 # ===== COMMANDS =====
@@ -299,6 +457,89 @@ async def ticket(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def setupticket(ctx):
+    """Configura o sistema de tickets (categoria e cargo de suporte)."""
+    guild_id = str(ctx.guild.id)
+    
+    # Primeiro, selecionar categoria
+    categories = ctx.guild.categories
+    if not categories:
+        await ctx.send("❌ Não há categorias no servidor. Crie uma categoria primeiro.")
+        return
+        
+    category_options = [SelectOption(label=cat.name[:100], value=str(cat.id)) for cat in categories[:25]]
+    
+    class CategorySelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Selecione a categoria para os tickets", options=category_options)
+            
+        async def callback(self, interaction: discord.Interaction):
+            selected_category = int(self.values[0])
+            ticket_categories[guild_id] = selected_category
+            
+            # Agora selecionar o cargo de suporte
+            roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+            if not roles:
+                await interaction.response.send_message("⚠️ Nenhum cargo encontrado para suporte. Configuração parcial salva.", ephemeral=True)
+                salvar_dados()
+                return
+                
+            role_options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25]]
+            
+            class SupportRoleSelect(Select):
+                def __init__(self):
+                    super().__init__(placeholder="Selecione o cargo que pode ver os tickets", options=role_options)
+                    
+                async def callback(self, role_interaction: discord.Interaction):
+                    selected_role = int(self.values[0])
+                    ticket_support_roles[guild_id] = selected_role
+                    salvar_dados()
+                    
+                    category = ctx.guild.get_channel(selected_category)
+                    role = ctx.guild.get_role(selected_role)
+                    
+                    await role_interaction.response.send_message(
+                        f"✅ Sistema de tickets configurado!\n"
+                        f"📁 Categoria: **{category.name}**\n"
+                        f"👥 Cargo de suporte: **{role.name}**", 
+                        ephemeral=True
+                    )
+            
+            role_view = View()
+            role_view.add_item(SupportRoleSelect())
+            await interaction.response.send_message("👥 Agora selecione o cargo de suporte:", view=role_view, ephemeral=True)
+    
+    view = View()
+    view.add_item(CategorySelect())
+    await ctx.send("📁 Selecione a categoria onde os tickets serão criados:", view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ticketpanel(ctx):
+    """Cria o painel de tickets no canal atual."""
+    guild_id = str(ctx.guild.id)
+    
+    if guild_id not in ticket_categories:
+        await ctx.send("❌ Sistema de tickets não configurado. Use `!setupticket` primeiro.")
+        return
+        
+    embed = discord.Embed(
+        title="🎫 Sistema de Suporte",
+        description="**Precisa de ajuda?** Clique no botão abaixo para abrir um ticket!\n\n"
+                   "✅ **Como funciona:**\n"
+                   "• Clique no botão 🎫\n"
+                   "• Preencha o formulário\n"
+                   "• Um canal privado será criado para você\n"
+                   "• Nossa equipe te ajudará no canal\n\n"
+                   "⚠️ **Importante:** Use apenas para suporte real. Tickets desnecessários podem resultar em punições.",
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="Sistema de Tickets • Clique no botão para começar")
+    
+    await ctx.send(embed=embed, view=TicketSupportView())
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def reclamacao(ctx):
     """Cria botão para sugestões/reclamações anônimas."""
     canais = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
@@ -363,6 +604,8 @@ async def ajuda(ctx):
     embed.add_field(name="!cargo", value="Define o cargo automático para novos membros.", inline=False)
     embed.add_field(name="!ticket", value="Escolhe o canal para os pedidos de cargo e exibe o botão.", inline=False)
     embed.add_field(name="!setcargo", value="Define qual cargo será mencionado nas mensagens do ticket.", inline=False)
+    embed.add_field(name="!setupticket", value="Configura o sistema de tickets (categoria e cargo de suporte).", inline=False)
+    embed.add_field(name="!ticketpanel", value="Cria o painel de tickets no canal atual.", inline=False)
     embed.add_field(name="!reclamacao", value="Cria botão para sugestões/reclamações anônimas.", inline=False)
     embed.add_field(name="!clear", value="Limpa todas as mensagens do canal atual.", inline=False)
     embed.add_field(name="!ping", value="Verifica se o bot está funcional e mostra o ping.", inline=False)
