@@ -429,83 +429,93 @@ async def ticket(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setupticket(ctx):
+    """Configura o sistema de tickets em duas etapas."""
     guild_id = str(ctx.guild.id)
     categories = ctx.guild.categories
     
     if not categories:
-        await ctx.send("❌ Crie uma categoria primeiro")
+        await ctx.send("❌ **Erro:** Não há categorias no servidor.\n📁 Crie uma categoria primeiro usando as configurações do servidor.")
         return
         
-    category_options = [SelectOption(label=cat.name[:100], value=str(cat.id)) for cat in categories[:25]]
+    # Criar lista de categorias
+    category_list = "\n".join([f"`{i+1}.` {cat.name}" for i, cat in enumerate(categories[:10])])
     
-    class CategorySelect(Select):
-        def __init__(self):
-            super().__init__(placeholder="Categoria para tickets", options=category_options, custom_id="category_select")
+    embed = discord.Embed(
+        title="📁 Configuração de Tickets - Passo 1",
+        description=f"**Categorias disponíveis:**\n{category_list}\n\n**Digite o número da categoria desejada:**",
+        color=discord.Color.blue()
+    )
+    
+    await ctx.send(embed=embed)
+    
+    def check_category(msg):
+        return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.isdigit()
+    
+    try:
+        # Aguardar resposta do usuário para categoria
+        msg = await bot.wait_for('message', check=check_category, timeout=30.0)
+        category_num = int(msg.content) - 1
+        
+        if 0 <= category_num < len(categories):
+            selected_category = categories[category_num]
+            ticket_categories[guild_id] = selected_category.id
             
-        async def callback(self, interaction: discord.Interaction):
+            # Agora configurar cargo de suporte
+            roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+            
+            if not roles:
+                salvar_dados()
+                await ctx.send("⚠️ **Aviso:** Nenhum cargo encontrado para suporte.\n✅ Categoria configurada, mas você precisará configurar um cargo de suporte manualmente.")
+                return
+            
+            # Lista de cargos
+            role_list = "\n".join([f"`{i+1}.` {role.name}" for i, role in enumerate(roles[:10])])
+            
+            embed2 = discord.Embed(
+                title="👥 Configuração de Tickets - Passo 2", 
+                description=f"**Categoria selecionada:** {selected_category.name} ✅\n\n**Cargos disponíveis:**\n{role_list}\n\n**Digite o número do cargo de suporte:**",
+                color=discord.Color.green()
+            )
+            
+            await ctx.send(embed=embed2)
+            
+            def check_role(msg):
+                return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.isdigit()
+            
             try:
-                # Responder imediatamente para evitar timeout
-                await interaction.response.defer(ephemeral=True)
+                # Aguardar resposta do usuário para cargo
+                msg2 = await bot.wait_for('message', check=check_role, timeout=30.0)
+                role_num = int(msg2.content) - 1
                 
-                category_id = int(self.values[0])
-                ticket_categories[guild_id] = category_id
-                
-                roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-                if not roles:
+                if 0 <= role_num < len(roles):
+                    selected_role = roles[role_num]
+                    ticket_support_roles[guild_id] = selected_role.id
                     salvar_dados()
-                    await interaction.followup.send("⚠️ Nenhum cargo encontrado para suporte. Configuração salva parcialmente.", ephemeral=True)
-                    return
                     
-                role_options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25]]
+                    # Confirmação final
+                    success_embed = discord.Embed(
+                        title="✅ Sistema de Tickets Configurado!",
+                        color=discord.Color.green()
+                    )
+                    success_embed.add_field(name="📁 Categoria", value=selected_category.name, inline=True)
+                    success_embed.add_field(name="👥 Cargo de Suporte", value=selected_role.name, inline=True)
+                    success_embed.add_field(name="📋 Próximo Passo", value="Use `!ticketpanel` para criar o painel", inline=False)
+                    
+                    await ctx.send(embed=success_embed)
+                    
+                else:
+                    await ctx.send("❌ **Erro:** Número de cargo inválido. Use `!setupticket` novamente.")
+                    
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ **Tempo esgotado!** Use `!setupticket` novamente.")
                 
-                class SupportRoleSelect(Select):
-                    def __init__(self):
-                        super().__init__(placeholder="Cargo de suporte", options=role_options, custom_id="support_role_select")
-                        
-                    async def callback(self, role_interaction: discord.Interaction):
-                        try:
-                            await role_interaction.response.defer(ephemeral=True)
-                            
-                            role_id = int(self.values[0])
-                            ticket_support_roles[guild_id] = role_id
-                            salvar_dados()
-                            
-                            category = ctx.guild.get_channel(category_id)
-                            role = ctx.guild.get_role(role_id)
-                            
-                            await role_interaction.followup.send(
-                                f"✅ **Sistema de tickets configurado com sucesso!**\n\n"
-                                f"📁 **Categoria:** {category.name}\n"
-                                f"👥 **Cargo de suporte:** {role.name}\n\n"
-                                f"Agora use `!ticketpanel` para criar o painel de tickets!", 
-                                ephemeral=True
-                            )
-                        except Exception as e:
-                            print(f"Erro na seleção de cargo: {e}")
-                            try:
-                                await role_interaction.followup.send("❌ Erro ao configurar cargo de suporte.", ephemeral=True)
-                            except:
-                                pass
-                
-                role_view = View(timeout=60)
-                role_view.add_item(SupportRoleSelect())
-                
-                await interaction.followup.send(
-                    "👥 **Agora selecione o cargo que poderá ver e gerenciar os tickets:**", 
-                    view=role_view, 
-                    ephemeral=True
-                )
-                
-            except Exception as e:
-                print(f"Erro na seleção de categoria: {e}")
-                try:
-                    await interaction.followup.send("❌ Erro ao configurar categoria. Tente novamente.", ephemeral=True)
-                except:
-                    pass
-    
-    view = View(timeout=60)
-    view.add_item(CategorySelect())
-    await ctx.send("📁 **Selecione a categoria onde os tickets serão criados:**", view=view)
+        else:
+            await ctx.send("❌ **Erro:** Número de categoria inválido. Use `!setupticket` novamente.")
+            
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ **Tempo esgotado!** Use `!setupticket` novamente.")
+    except ValueError:
+        await ctx.send("❌ **Erro:** Digite apenas números. Use `!setupticket` novamente.")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
