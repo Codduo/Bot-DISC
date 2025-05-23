@@ -43,15 +43,39 @@ ticket_support_roles = {}  # guild_id: role_id do cargo de suporte
 # ===== LOCK FILE MANAGEMENT =====
 def check_lock_file():
     if os.path.exists(LOCKFILE):
-        print("⚠️ Já existe uma instância do bot rodando. Abortando.")
-        sys.exit(1)
+        try:
+            with open(LOCKFILE, "r") as f:
+                old_pid = int(f.read().strip())
+            
+            # Verificar se o processo ainda existe
+            try:
+                os.kill(old_pid, 0)  # Não mata, apenas verifica se existe
+                print("⚠️ Já existe uma instância do bot rodando. Abortando.")
+                print(f"PID da instância existente: {old_pid}")
+                sys.exit(1)
+            except (OSError, ProcessLookupError):
+                # Processo não existe mais, remover lock file órfão
+                print("🧹 Removendo arquivo de lock órfão...")
+                os.remove(LOCKFILE)
+        except (ValueError, FileNotFoundError):
+            # Arquivo corrompido ou inexistente, remover
+            if os.path.exists(LOCKFILE):
+                os.remove(LOCKFILE)
+    
+    # Criar diretório se não existir
+    os.makedirs(os.path.dirname(LOCKFILE), exist_ok=True)
     
     with open(LOCKFILE, "w") as f:
         f.write(str(os.getpid()))
+    print(f"✅ Lock file criado. PID: {os.getpid()}")
 
 def remove_lockfile():
     if os.path.exists(LOCKFILE):
-        os.remove(LOCKFILE)
+        try:
+            os.remove(LOCKFILE)
+            print("🧹 Lock file removido.")
+        except:
+            pass
 
 import atexit
 atexit.register(remove_lockfile)
