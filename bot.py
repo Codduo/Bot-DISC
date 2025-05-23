@@ -440,44 +440,72 @@ async def setupticket(ctx):
     
     class CategorySelect(Select):
         def __init__(self):
-            super().__init__(placeholder="Categoria para tickets", options=category_options)
+            super().__init__(placeholder="Categoria para tickets", options=category_options, custom_id="category_select")
             
         async def callback(self, interaction: discord.Interaction):
-            category_id = int(self.values[0])
-            ticket_categories[guild_id] = category_id
-            
-            roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-            if not roles:
-                await interaction.response.send_message("⚠️ Sem cargos para suporte", ephemeral=True)
-                salvar_dados()
-                return
+            try:
+                # Responder imediatamente para evitar timeout
+                await interaction.response.defer(ephemeral=True)
                 
-            role_options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25]]
-            
-            class SupportRoleSelect(Select):
-                def __init__(self):
-                    super().__init__(placeholder="Cargo de suporte", options=role_options)
-                    
-                async def callback(self, role_interaction: discord.Interaction):
-                    role_id = int(self.values[0])
-                    ticket_support_roles[guild_id] = role_id
+                category_id = int(self.values[0])
+                ticket_categories[guild_id] = category_id
+                
+                roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
+                if not roles:
                     salvar_dados()
+                    await interaction.followup.send("⚠️ Nenhum cargo encontrado para suporte. Configuração salva parcialmente.", ephemeral=True)
+                    return
                     
-                    category = ctx.guild.get_channel(category_id)
-                    role = ctx.guild.get_role(role_id)
-                    
-                    await role_interaction.response.send_message(
-                        f"✅ Sistema configurado!\n📁 Categoria: **{category.name}**\n👥 Suporte: **{role.name}**", 
-                        ephemeral=True
-                    )
-            
-            role_view = View()
-            role_view.add_item(SupportRoleSelect())
-            await interaction.response.send_message("👥 Cargo de suporte:", view=role_view, ephemeral=True)
+                role_options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25]]
+                
+                class SupportRoleSelect(Select):
+                    def __init__(self):
+                        super().__init__(placeholder="Cargo de suporte", options=role_options, custom_id="support_role_select")
+                        
+                    async def callback(self, role_interaction: discord.Interaction):
+                        try:
+                            await role_interaction.response.defer(ephemeral=True)
+                            
+                            role_id = int(self.values[0])
+                            ticket_support_roles[guild_id] = role_id
+                            salvar_dados()
+                            
+                            category = ctx.guild.get_channel(category_id)
+                            role = ctx.guild.get_role(role_id)
+                            
+                            await role_interaction.followup.send(
+                                f"✅ **Sistema de tickets configurado com sucesso!**\n\n"
+                                f"📁 **Categoria:** {category.name}\n"
+                                f"👥 **Cargo de suporte:** {role.name}\n\n"
+                                f"Agora use `!ticketpanel` para criar o painel de tickets!", 
+                                ephemeral=True
+                            )
+                        except Exception as e:
+                            print(f"Erro na seleção de cargo: {e}")
+                            try:
+                                await role_interaction.followup.send("❌ Erro ao configurar cargo de suporte.", ephemeral=True)
+                            except:
+                                pass
+                
+                role_view = View(timeout=60)
+                role_view.add_item(SupportRoleSelect())
+                
+                await interaction.followup.send(
+                    "👥 **Agora selecione o cargo que poderá ver e gerenciar os tickets:**", 
+                    view=role_view, 
+                    ephemeral=True
+                )
+                
+            except Exception as e:
+                print(f"Erro na seleção de categoria: {e}")
+                try:
+                    await interaction.followup.send("❌ Erro ao configurar categoria. Tente novamente.", ephemeral=True)
+                except:
+                    pass
     
-    view = View()
+    view = View(timeout=60)
     view.add_item(CategorySelect())
-    await ctx.send("📁 Selecione a categoria:", view=view)
+    await ctx.send("📁 **Selecione a categoria onde os tickets serão criados:**", view=view)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
