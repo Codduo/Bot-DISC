@@ -69,6 +69,34 @@ ticket_support_roles = {}
 # Flag para controlar views
 views_registered = False
 
+# ===== CONFIGURAÇÕES DOS TIPOS DE SUPORTE =====
+SUPPORT_TYPES = {
+    "tecnico": {
+        "name": "Suporte Técnico",
+        "emoji": "🖥️",
+        "role_id": 1359194954756264120,
+        "description": "Para problemas técnicos e TI"
+    },
+    "kommo": {
+        "name": "Suporte Kommo",
+        "emoji": "📱",
+        "role_id": 1373012855271719003,
+        "description": "Para questões do sistema Kommo"
+    },
+    "rh": {
+        "name": "Suporte RH",
+        "emoji": "👥",
+        "role_id": 1359505353653489694,
+        "description": "Para questões de Recursos Humanos"
+    },
+    "gerencia": {
+        "name": "Suporte Gerência",
+        "emoji": "💼",
+        "role_id": 1359504498048893070,
+        "description": "Para questões gerenciais"
+    }
+}
+
 # ===== DATA MANAGEMENT =====
 def salvar_dados():
     dados = {
@@ -146,25 +174,31 @@ class TicketButtonView(View):
 class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
     assunto = TextInput(label="Assunto", placeholder="Descreva brevemente seu problema", style=TextStyle.short)
     descricao = TextInput(label="Descrição detalhada", placeholder="Explique seu problema em detalhes...", style=TextStyle.paragraph)
-    tipo_suporte = TextInput(label="Tipo de Suporte", placeholder="Ex: Técnico, Financeiro, RH, Geral...", style=TextStyle.short)
+
+    def __init__(self, support_type):
+        super().__init__()
+        self.support_type = support_type
+        self.title = f"Ticket - {SUPPORT_TYPES[support_type]['name']}"
 
     async def on_submit(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
         category_id = ticket_categories.get(guild_id)
-        support_role_id = ticket_support_roles.get(guild_id)
         
         if not category_id:
             await interaction.response.send_message("❌ Sistema não configurado", ephemeral=True)
             return
             
         category = interaction.guild.get_channel(category_id)
-        support_role = interaction.guild.get_role(support_role_id) if support_role_id else None
         
         if not category:
             await interaction.response.send_message("❌ Categoria não encontrada", ephemeral=True)
             return
 
-        ticket_name = f"ticket-{interaction.user.name.lower().replace(' ', '-')}-{interaction.user.discriminator}"
+        # Obter informações do tipo de suporte
+        support_info = SUPPORT_TYPES[self.support_type]
+        support_role = interaction.guild.get_role(support_info['role_id'])
+
+        ticket_name = f"ticket-{self.support_type}-{interaction.user.name.lower().replace(' ', '-')}"
         
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -180,17 +214,17 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
                 name=ticket_name,
                 category=category,
                 overwrites=overwrites,
-                topic=f"Ticket de {interaction.user.display_name} - {self.tipo_suporte.value}"
+                topic=f"Ticket de {interaction.user.display_name} - {support_info['name']}"
             )
             
             embed = discord.Embed(
-                title="🎫 Novo Ticket de Suporte",
+                title=f"🎫 {support_info['name']}",
                 color=discord.Color.blue(),
                 timestamp=datetime.now()
             )
             embed.add_field(name="👤 Usuário", value=interaction.user.mention, inline=True)
             embed.add_field(name="📝 Assunto", value=self.assunto.value, inline=True)
-            embed.add_field(name="🏷️ Tipo", value=self.tipo_suporte.value, inline=True)
+            embed.add_field(name="🏷️ Tipo", value=f"{support_info['emoji']} {support_info['name']}", inline=True)
             embed.add_field(name="📄 Descrição", value=self.descricao.value, inline=False)
             embed.set_footer(text=f"ID do usuário: {interaction.user.id}")
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
@@ -199,10 +233,10 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
             
             mention_text = f"{interaction.user.mention}"
             if support_role:
-                mention_text += f" {support_role.mention}"
+                mention_text += f" <@&{support_info['role_id']}>"
                 
             await ticket_channel.send(
-                content=f"{mention_text}\n\n**Olá {interaction.user.mention}!** 👋\nSeu ticket foi criado. Nossa equipe irá ajudar em breve.",
+                content=f"{mention_text}\n\n**Olá {interaction.user.mention}!** 👋\nSeu ticket de **{support_info['name']}** foi criado. Nossa equipe irá ajudar em breve.",
                 embed=embed,
                 view=close_view
             )
@@ -212,17 +246,32 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
         except Exception as e:
             await interaction.response.send_message(f"❌ Erro: {str(e)}", ephemeral=True)
 
-class TicketSupportButton(Button):
+class SupportTypeSelect(Select):
     def __init__(self):
-        super().__init__(label="🎫 Abrir Ticket", emoji="🎫", style=discord.ButtonStyle.primary, custom_id="ticket_support_button")
+        options = []
+        for key, info in SUPPORT_TYPES.items():
+            options.append(SelectOption(
+                label=info['name'],
+                description=info['description'],
+                emoji=info['emoji'],
+                value=key
+            ))
+        
+        super().__init__(
+            placeholder="Selecione o tipo de suporte...",
+            options=options,
+            custom_id="support_type_select"
+        )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(TicketSupportModal())
+        support_type = self.values[0]
+        modal = TicketSupportModal(support_type)
+        await interaction.response.send_modal(modal)
 
 class TicketSupportView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(TicketSupportButton())
+        self.add_item(SupportTypeSelect())
 
 # ===== CLOSE TICKET SYSTEM =====
 class TicketCloseView(View):
@@ -243,10 +292,11 @@ class TicketCloseView(View):
         except:
             pass
         
+        # Verificar se o usuário tem permissão (dono do ticket, admin, ou qualquer cargo de suporte)
         has_permission = (
             interaction.user.id == user_id or 
             interaction.user.guild_permissions.manage_channels or
-            any(role.id == ticket_support_roles.get(str(interaction.guild.id)) for role in interaction.user.roles)
+            any(role.id in [info['role_id'] for info in SUPPORT_TYPES.values()] for role in interaction.user.roles)
         )
         
         if not has_permission:
@@ -441,7 +491,7 @@ async def setupticket(ctx):
     category_list = "\n".join([f"`{i+1}.` {cat.name}" for i, cat in enumerate(categories[:10])])
     
     embed = discord.Embed(
-        title="📁 Configuração de Tickets - Passo 1",
+        title="📁 Configuração de Tickets - Categoria",
         description=f"**Categorias disponíveis:**\n{category_list}\n\n**Digite o número da categoria desejada:**",
         color=discord.Color.blue()
     )
@@ -459,56 +509,19 @@ async def setupticket(ctx):
         if 0 <= category_num < len(categories):
             selected_category = categories[category_num]
             ticket_categories[guild_id] = selected_category.id
+            salvar_dados()
             
-            # Agora configurar cargo de suporte
-            roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
-            
-            if not roles:
-                salvar_dados()
-                await ctx.send("⚠️ **Aviso:** Nenhum cargo encontrado para suporte.\n✅ Categoria configurada, mas você precisará configurar um cargo de suporte manualmente.")
-                return
-            
-            # Lista de cargos
-            role_list = "\n".join([f"`{i+1}.` {role.name}" for i, role in enumerate(roles[:10])])
-            
-            embed2 = discord.Embed(
-                title="👥 Configuração de Tickets - Passo 2", 
-                description=f"**Categoria selecionada:** {selected_category.name} ✅\n\n**Cargos disponíveis:**\n{role_list}\n\n**Digite o número do cargo de suporte:**",
+            # Confirmação final
+            success_embed = discord.Embed(
+                title="✅ Sistema de Tickets Configurado!",
                 color=discord.Color.green()
             )
+            success_embed.add_field(name="📁 Categoria", value=selected_category.name, inline=True)
+            success_embed.add_field(name="🎯 Tipos Disponíveis", value="\n".join([f"{info['emoji']} {info['name']}" for info in SUPPORT_TYPES.values()]), inline=False)
+            success_embed.add_field(name="📋 Próximo Passo", value="Use `!ticketpanel` para criar o painel", inline=False)
             
-            await ctx.send(embed=embed2)
+            await ctx.send(embed=success_embed)
             
-            def check_role(msg):
-                return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.isdigit()
-            
-            try:
-                # Aguardar resposta do usuário para cargo
-                msg2 = await bot.wait_for('message', check=check_role, timeout=30.0)
-                role_num = int(msg2.content) - 1
-                
-                if 0 <= role_num < len(roles):
-                    selected_role = roles[role_num]
-                    ticket_support_roles[guild_id] = selected_role.id
-                    salvar_dados()
-                    
-                    # Confirmação final
-                    success_embed = discord.Embed(
-                        title="✅ Sistema de Tickets Configurado!",
-                        color=discord.Color.green()
-                    )
-                    success_embed.add_field(name="📁 Categoria", value=selected_category.name, inline=True)
-                    success_embed.add_field(name="👥 Cargo de Suporte", value=selected_role.name, inline=True)
-                    success_embed.add_field(name="📋 Próximo Passo", value="Use `!ticketpanel` para criar o painel", inline=False)
-                    
-                    await ctx.send(embed=success_embed)
-                    
-                else:
-                    await ctx.send("❌ **Erro:** Número de cargo inválido. Use `!setupticket` novamente.")
-                    
-            except asyncio.TimeoutError:
-                await ctx.send("⏰ **Tempo esgotado!** Use `!setupticket` novamente.")
-                
         else:
             await ctx.send("❌ **Erro:** Número de categoria inválido. Use `!setupticket` novamente.")
             
@@ -528,16 +541,21 @@ async def ticketpanel(ctx):
         
     embed = discord.Embed(
         title="🎫 Sistema de Suporte",
-        description="**Precisa de ajuda?** Clique no botão!\n\n"
+        description="**Precisa de ajuda?** Selecione o tipo de suporte!\n\n"
+                   "**📋 Tipos disponíveis:**\n"
+                   f"{SUPPORT_TYPES['tecnico']['emoji']} **{SUPPORT_TYPES['tecnico']['name']}** - {SUPPORT_TYPES['tecnico']['description']}\n"
+                   f"{SUPPORT_TYPES['kommo']['emoji']} **{SUPPORT_TYPES['kommo']['name']}** - {SUPPORT_TYPES['kommo']['description']}\n"
+                   f"{SUPPORT_TYPES['rh']['emoji']} **{SUPPORT_TYPES['rh']['name']}** - {SUPPORT_TYPES['rh']['description']}\n"
+                   f"{SUPPORT_TYPES['gerencia']['emoji']} **{SUPPORT_TYPES['gerencia']['name']}** - {SUPPORT_TYPES['gerencia']['description']}\n\n"
                    "✅ **Como funciona:**\n"
-                   "• Clique no botão 🎫\n"
+                   "• Selecione o tipo de suporte\n"
                    "• Preencha o formulário\n"
                    "• Canal privado será criado\n"
-                   "• Nossa equipe te ajudará\n\n"
+                   "• Equipe especializada te ajudará\n\n"
                    "⚠️ **Use apenas para suporte real**",
         color=discord.Color.blue()
     )
-    embed.set_footer(text="Clique no botão para começar")
+    embed.set_footer(text="Selecione o tipo de suporte no menu abaixo")
     
     await ctx.send(embed=embed, view=TicketSupportView())
 
