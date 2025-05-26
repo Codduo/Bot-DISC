@@ -1,4 +1,11 @@
-import discord
+@bot.command(name="ajuda")
+async def ajuda(ctx):
+    embed = discord.Embed(title="📖 Comandos", color=discord.Color.green())
+    embed.add_field(name="**🎭 Sistema de Cargos**", value="", inline=False)
+    embed.add_field(name="!cargo", value="Configurar cargo automático", inline=True)
+    embed.add_field(name="!setcargo", value="Cargo para mencionar", inline=True)
+    
+    embed.add_field(name="**🎫 Sistema de Tickets**", value="", inline=Falseimport discord
 from discord.ext import commands
 from discord import TextStyle
 from discord.ui import View, Modal, TextInput, Button, Select
@@ -65,6 +72,7 @@ mention_roles = {}
 sugestao_channels = {}
 ticket_categories = {}
 ticket_support_roles = {}
+log_channels = {}  # Canal de logs por servidor
 
 # Flag para controlar views
 views_registered = False
@@ -106,6 +114,7 @@ def salvar_dados():
         "sugestao_channels": sugestao_channels,
         "ticket_categories": ticket_categories,
         "ticket_support_roles": ticket_support_roles,
+        "log_channels": log_channels,
     }
     
     try:
@@ -125,9 +134,49 @@ def carregar_dados():
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
                 ticket_categories.update(dados.get("ticket_categories", {}))
                 ticket_support_roles.update(dados.get("ticket_support_roles", {}))
+                log_channels.update(dados.get("log_channels", {}))
                 print("✅ Dados carregados com sucesso")
     except Exception as e:
         print(f"⚠️ Erro ao carregar dados: {e}")
+
+# ===== SISTEMA DE LOGS =====
+async def enviar_log(guild, titulo, descricao, cor=discord.Color.blue(), campos=None, thumbnail=None):
+    """Envia log para o canal configurado ou servidor de logs"""
+    try:
+        guild_id = str(guild.id)
+        log_channel_id = log_channels.get(guild_id)
+        
+        if not log_channel_id:
+            return  # Sem canal configurado
+            
+        log_channel = bot.get_channel(log_channel_id)
+        if not log_channel:
+            return  # Canal não encontrado
+            
+        embed = discord.Embed(
+            title=titulo,
+            description=descricao,
+            color=cor,
+            timestamp=datetime.now()
+        )
+        
+        if campos:
+            for campo in campos:
+                embed.add_field(
+                    name=campo.get("name", "Campo"),
+                    value=campo.get("value", "Valor"),
+                    inline=campo.get("inline", True)
+                )
+        
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
+            
+        embed.set_footer(text=f"Servidor: {guild.name}", icon_url=guild.icon.url if guild.icon else None)
+        
+        await log_channel.send(embed=embed)
+        
+    except Exception as e:
+        print(f"❌ Erro ao enviar log: {e}")
 
 # ===== TICKET MODAL =====
 class TicketModal(Modal, title="Solicitar Cargo"):
@@ -241,6 +290,21 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
                 view=close_view
             )
             
+            # Log da criação do ticket
+            await enviar_log(
+                interaction.guild,
+                "🎫 Ticket Criado",
+                f"Novo ticket de suporte foi aberto",
+                discord.Color.green(),
+                [
+                    {"name": "👤 Usuário", "value": f"{interaction.user.mention} ({interaction.user.id})", "inline": True},
+                    {"name": "🏷️ Tipo", "value": f"{support_info['emoji']} {support_info['name']}", "inline": True},
+                    {"name": "📝 Assunto", "value": self.assunto.value[:100] + ("..." if len(self.assunto.value) > 100 else ""), "inline": False},
+                    {"name": "📍 Canal", "value": ticket_channel.mention, "inline": True}
+                ],
+                interaction.user.display_avatar.url
+            )
+            
             await interaction.response.send_message(f"✅ Ticket criado: {ticket_channel.mention}", ephemeral=True)
             
         except Exception as e:
@@ -313,11 +377,44 @@ class ConfirmCloseView(View):
     @discord.ui.button(label="✅ Sim", style=discord.ButtonStyle.danger)
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
         try:
+            # Coletar informações do ticket antes de fechar
+            ticket_info = {"user": "Desconhecido", "type": "Desconhecido"}
+            
+            async for message in interaction.channel.history(limit=20, oldest_first=True):
+                if message.embeds and message.author == interaction.guild.me:
+                    embed = message.embeds[0]
+                    if "👤 Usuário" in embed.description or any("👤 Usuário" in field.name for field in embed.fields):
+                        for field in embed.fields:
+                            if field.name == "👤 Usuário":
+                                user_mention = field.value.split()[0]
+                                ticket_info["user"] = user_mention
+                            elif field.name == "🏷️ Tipo":
+                                ticket_info["type"] = field.value
+                        break
+            
+            channel_name = interaction.channel.name
+            
             await interaction.response.send_message("🔒 Fechando em 3s...")
+            
+            # Log do fechamento do ticket
+            await enviar_log(
+                interaction.guild,
+                "🔒 Ticket Fechado",
+                f"Ticket foi fechado",
+                discord.Color.red(),
+                [
+                    {"name": "👤 Usuario do Ticket", "value": ticket_info["user"], "inline": True},
+                    {"name": "🏷️ Tipo", "value": ticket_info["type"], "inline": True},
+                    {"name": "🔒 Fechado por", "value": f"{interaction.user.mention} ({interaction.user.id})", "inline": True},
+                    {"name": "📍 Canal", "value": f"#{channel_name}", "inline": True}
+                ],
+                interaction.user.display_avatar.url
+            )
+            
             await asyncio.sleep(3)
-            await interaction.channel.delete(reason="Ticket fechado")
-        except:
-            pass
+            await interaction.channel.delete(reason=f"Ticket fechado por {interaction.user.name}")
+        except Exception as e:
+            print(f"Erro ao fechar ticket: {e}")
             
     @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
     async def cancel_close(self, interaction: discord.Interaction, button: Button):
@@ -378,8 +475,200 @@ async def on_member_join(member):
             try:
                 await member.add_roles(role)
                 print(f"✅ Cargo {role.name} dado para {member.name}")
+                
+                # Log de entrada do membro
+                await enviar_log(
+                    member.guild,
+                    "👋 Membro Entrou",
+                    f"Novo membro entrou no servidor",
+                    discord.Color.green(),
+                    [
+                        {"name": "👤 Usuário", "value": f"{member.mention} ({member.id})", "inline": True},
+                        {"name": "📅 Conta Criada", "value": f"<t:{int(member.created_at.timestamp())}:R>", "inline": True},
+                        {"name": "🎭 Cargo Automático", "value": role.mention if role else "Nenhum", "inline": True}
+                    ],
+                    member.display_avatar.url
+                )
             except Exception as e:
                 print(f"❌ Erro ao dar cargo: {e}")
+
+@bot.event
+async def on_member_remove(member):
+    # Log de saída do membro
+    await enviar_log(
+        member.guild,
+        "👋 Membro Saiu",
+        f"Membro saiu do servidor",
+        discord.Color.orange(),
+        [
+            {"name": "👤 Usuário", "value": f"{member.name}#{member.discriminator} ({member.id})", "inline": True},
+            {"name": "📅 Entrou em", "value": f"<t:{int(member.joined_at.timestamp())}:R>" if member.joined_at else "Desconhecido", "inline": True},
+            {"name": "🎭 Cargos", "value": ", ".join([role.name for role in member.roles[1:]][:5]) or "Nenhum", "inline": False}
+        ],
+        member.display_avatar.url
+    )
+
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+        
+    # Log de mensagem deletada
+    await enviar_log(
+        message.guild,
+        "🗑️ Mensagem Deletada",
+        f"Mensagem foi deletada",
+        discord.Color.red(),
+        [
+            {"name": "👤 Autor", "value": f"{message.author.mention} ({message.author.id})", "inline": True},
+            {"name": "📍 Canal", "value": f"{message.channel.mention}", "inline": True},
+            {"name": "📝 Conteúdo", "value": message.content[:500] + ("..." if len(message.content) > 500 else "") if message.content else "*Sem conteúdo de texto*", "inline": False},
+            {"name": "📅 Enviada em", "value": f"<t:{int(message.created_at.timestamp())}:R>", "inline": True}
+        ],
+        message.author.display_avatar.url
+    )
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot or before.content == after.content:
+        return
+        
+    # Log de mensagem editada
+    await enviar_log(
+        before.guild,
+        "✏️ Mensagem Editada",
+        f"Mensagem foi editada",
+        discord.Color.yellow(),
+        [
+            {"name": "👤 Autor", "value": f"{before.author.mention} ({before.author.id})", "inline": True},
+            {"name": "📍 Canal", "value": f"{before.channel.mention}", "inline": True},
+            {"name": "📝 Antes", "value": before.content[:300] + ("..." if len(before.content) > 300 else "") if before.content else "*Sem conteúdo*", "inline": False},
+            {"name": "📝 Depois", "value": after.content[:300] + ("..." if len(after.content) > 300 else "") if after.content else "*Sem conteúdo*", "inline": False}
+        ],
+        before.author.display_avatar.url
+    )
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # Log de movimentação de voz
+    if before.channel != after.channel:
+        if before.channel is None:  # Entrou em call
+            await enviar_log(
+                member.guild,
+                "🔊 Entrou em Call",
+                f"Membro entrou em canal de voz",
+                discord.Color.green(),
+                [
+                    {"name": "👤 Usuário", "value": f"{member.mention} ({member.id})", "inline": True},
+                    {"name": "📍 Canal", "value": f"🔊 {after.channel.name}", "inline": True},
+                    {"name": "👥 Pessoas no Canal", "value": str(len(after.channel.members)), "inline": True}
+                ],
+                member.display_avatar.url
+            )
+        elif after.channel is None:  # Saiu da call
+            await enviar_log(
+                member.guild,
+                "🔇 Saiu de Call",
+                f"Membro saiu de canal de voz",
+                discord.Color.red(),
+                [
+                    {"name": "👤 Usuário", "value": f"{member.mention} ({member.id})", "inline": True},
+                    {"name": "📍 Canal", "value": f"🔊 {before.channel.name}", "inline": True},
+                    {"name": "👥 Pessoas Restantes", "value": str(len(before.channel.members)), "inline": True}
+                ],
+                member.display_avatar.url
+            )
+        else:  # Mudou de canal
+            await enviar_log(
+                member.guild,
+                "🔄 Mudou de Call",
+                f"Membro mudou de canal de voz",
+                discord.Color.blue(),
+                [
+                    {"name": "👤 Usuário", "value": f"{member.mention} ({member.id})", "inline": True},
+                    {"name": "📍 De", "value": f"🔊 {before.channel.name}", "inline": True},
+                    {"name": "📍 Para", "value": f"🔊 {after.channel.name}", "inline": True}
+                ],
+                member.display_avatar.url
+            )
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    # Log de canal deletado
+    await enviar_log(
+        channel.guild,
+        "🗑️ Canal Deletado",
+        f"Canal foi deletado",
+        discord.Color.red(),
+        [
+            {"name": "📍 Nome", "value": f"#{channel.name}", "inline": True},
+            {"name": "🏷️ Tipo", "value": str(channel.type).title(), "inline": True},
+            {"name": "📁 Categoria", "value": channel.category.name if channel.category else "Nenhuma", "inline": True}
+        ]
+    )
+
+@bot.event
+async def on_guild_channel_create(channel):
+    # Log de canal criado
+    await enviar_log(
+        channel.guild,
+        "➕ Canal Criado",
+        f"Novo canal foi criado",
+        discord.Color.green(),
+        [
+            {"name": "📍 Nome", "value": f"{channel.mention}", "inline": True},
+            {"name": "🏷️ Tipo", "value": str(channel.type).title(), "inline": True},
+            {"name": "📁 Categoria", "value": channel.category.name if channel.category else "Nenhuma", "inline": True}
+        ]
+    )
+
+@bot.event
+async def on_member_update(before, after):
+    # Log de mudanças no membro (nick, cargos)
+    if before.nick != after.nick:
+        await enviar_log(
+            after.guild,
+            "✏️ Apelido Alterado",
+            f"Apelido de membro foi alterado",
+            discord.Color.blue(),
+            [
+                {"name": "👤 Usuário", "value": f"{after.mention} ({after.id})", "inline": True},
+                {"name": "📝 Antes", "value": before.nick or before.name, "inline": True},
+                {"name": "📝 Depois", "value": after.nick or after.name, "inline": True}
+            ],
+            after.display_avatar.url
+        )
+    
+    # Verificar mudanças de cargos
+    if before.roles != after.roles:
+        added_roles = [role for role in after.roles if role not in before.roles]
+        removed_roles = [role for role in before.roles if role not in after.roles]
+        
+        if added_roles:
+            await enviar_log(
+                after.guild,
+                "➕ Cargo Adicionado",
+                f"Cargo foi adicionado ao membro",
+                discord.Color.green(),
+                [
+                    {"name": "👤 Usuário", "value": f"{after.mention} ({after.id})", "inline": True},
+                    {"name": "🎭 Cargos Adicionados", "value": ", ".join([role.mention for role in added_roles]), "inline": False}
+                ],
+                after.display_avatar.url
+            )
+        
+        if removed_roles:
+            await enviar_log(
+                after.guild,
+                "➖ Cargo Removido",
+                f"Cargo foi removido do membro",
+                discord.Color.red(),
+                [
+                    {"name": "👤 Usuário", "value": f"{after.mention} ({after.id})", "inline": True},
+                    {"name": "🎭 Cargos Removidos", "value": ", ".join([role.name for role in removed_roles]), "inline": False}
+                ],
+                after.display_avatar.url
+            )
 
 @bot.event
 async def on_command_completion(ctx):
@@ -398,6 +687,7 @@ async def on_guild_remove(guild):
     sugestao_channels.pop(guild_id, None)
     ticket_categories.pop(guild_id, None)
     ticket_support_roles.pop(guild_id, None)
+    log_channels.pop(guild_id, None)
     salvar_dados()
 
 # ===== COMMANDS =====
@@ -428,6 +718,153 @@ async def cargo(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def setlogs(ctx):
+    """Configura o canal ou servidor de logs"""
+    
+    embed1 = discord.Embed(
+        title="📊 Configuração de Logs",
+        description="**Escolha uma opção:**\n\n"
+                   "🏠 **Mesmo Servidor** - Canal no servidor atual\n"
+                   "🌐 **Outro Servidor** - Canal em servidor diferente\n\n"
+                   "**Digite:**\n"
+                   "`1` - Para canal no mesmo servidor\n"
+                   "`2` - Para canal em outro servidor",
+        color=discord.Color.blue()
+    )
+    
+    await ctx.send(embed=embed1)
+    
+    def check_option(msg):
+        return msg.author == ctx.author and msg.channel == ctx.channel and msg.content in ['1', '2']
+    
+    try:
+        msg = await bot.wait_for('message', check=check_option, timeout=30.0)
+        option = msg.content
+        
+        if option == '1':
+            # Canal no mesmo servidor
+            channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+            if not channels:
+                await ctx.send("❌ Nenhum canal disponível")
+                return
+                
+            channel_list = "\n".join([f"`{i+1}.` {c.mention}" for i, c in enumerate(channels[:15])])
+            
+            embed2 = discord.Embed(
+                title="📍 Selecionar Canal de Logs",
+                description=f"**Canais disponíveis:**\n{channel_list}\n\n**Digite o número do canal:**",
+                color=discord.Color.green()
+            )
+            
+            await ctx.send(embed=embed2)
+            
+            def check_channel(msg):
+                return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.isdigit()
+            
+            try:
+                msg2 = await bot.wait_for('message', check=check_channel, timeout=30.0)
+                channel_num = int(msg2.content) - 1
+                
+                if 0 <= channel_num < len(channels):
+                    selected_channel = channels[channel_num]
+                    log_channels[str(ctx.guild.id)] = selected_channel.id
+                    salvar_dados()
+                    
+                    await ctx.send(f"✅ **Canal de logs configurado:** {selected_channel.mention}")
+                else:
+                    await ctx.send("❌ Número inválido")
+                    
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Tempo esgotado")
+                
+        elif option == '2':
+            # Canal em outro servidor
+            embed2 = discord.Embed(
+                title="🌐 Canal em Outro Servidor",
+                description="**Para configurar logs em outro servidor:**\n\n"
+                           "1️⃣ Copie o **ID do canal** de destino\n"
+                           "2️⃣ Certifique-se que o bot está no servidor\n"
+                           "3️⃣ Digite o ID do canal aqui\n\n"
+                           "**💡 Como pegar ID do canal:**\n"
+                           "• Ative o Modo Desenvolvedor no Discord\n"
+                           "• Clique com botão direito no canal\n"
+                           "• Selecione 'Copiar ID'",
+                color=discord.Color.orange()
+            )
+            
+            await ctx.send(embed=embed2)
+            
+            def check_channel_id(msg):
+                return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.isdigit()
+            
+            try:
+                msg2 = await bot.wait_for('message', check=check_channel_id, timeout=60.0)
+                channel_id = int(msg2.content)
+                
+                # Verificar se o canal existe e se o bot tem acesso
+                target_channel = bot.get_channel(channel_id)
+                
+                if target_channel:
+                    try:
+                        # Testar se consegue enviar mensagem
+                        test_embed = discord.Embed(
+                            title="🧪 Teste de Logs",
+                            description=f"Logs do servidor **{ctx.guild.name}** configurados com sucesso!",
+                            color=discord.Color.green()
+                        )
+                        await target_channel.send(embed=test_embed)
+                        
+                        log_channels[str(ctx.guild.id)] = channel_id
+                        salvar_dados()
+                        
+                        await ctx.send(f"✅ **Canal de logs configurado:** `{target_channel.name}` em `{target_channel.guild.name}`")
+                        
+                    except discord.Forbidden:
+                        await ctx.send("❌ Sem permissão para enviar no canal especificado")
+                    except Exception as e:
+                        await ctx.send(f"❌ Erro ao testar o canal: {str(e)}")
+                else:
+                    await ctx.send("❌ Canal não encontrado. Verifique se o ID está correto e se o bot está no servidor.")
+                    
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Tempo esgotado")
+            except ValueError:
+                await ctx.send("❌ ID inválido")
+                
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Tempo esgotado")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def testlog(ctx):
+    """Testa o sistema de logs"""
+    await enviar_log(
+        ctx.guild,
+        "🧪 Teste de Sistema",
+        "Este é um teste do sistema de logs",
+        discord.Color.purple(),
+        [
+            {"name": "👤 Testado por", "value": f"{ctx.author.mention}", "inline": True},
+            {"name": "📍 Canal", "value": f"{ctx.channel.mention}", "inline": True},
+            {"name": "⏰ Status", "value": "✅ Sistema Funcionando", "inline": True}
+        ],
+        ctx.author.display_avatar.url
+    )
+    
+    await ctx.send("🧪 **Teste enviado!** Verifique o canal de logs.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removelogs(ctx):
+    """Remove a configuração de logs"""
+    guild_id = str(ctx.guild.id)
+    
+    if guild_id in log_channels:
+        log_channels.pop(guild_id)
+        salvar_dados()
+        await ctx.send("✅ **Sistema de logs desativado**")
+    else:
+        await ctx.send("❌ **Sistema de logs não estava configurado**")
 async def setcargo(ctx):
     roles = [r for r in ctx.guild.roles if not r.is_bot_managed() and r.name != "@everyone"]
     options = [SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:25]]
@@ -622,16 +1059,31 @@ async def status(ctx):
 
 @bot.command(name="ajuda")
 async def ajuda(ctx):
-    embed = discord.Embed(title="📖 Comandos", color=discord.Color.green())
-    embed.add_field(name="!cargo", value="Cargo automático", inline=False)
-    embed.add_field(name="!ticket", value="Sistema de pedidos", inline=False)
-    embed.add_field(name="!setcargo", value="Cargo para mencionar", inline=False)
-    embed.add_field(name="!setupticket", value="Configurar tickets", inline=False)
-    embed.add_field(name="!ticketpanel", value="Painel de tickets", inline=False)
-    embed.add_field(name="!reclamacao", value="Sugestões anônimas", inline=False)
-    embed.add_field(name="!clear", value="Limpar canal", inline=False)
-    embed.add_field(name="!ping", value="Testar bot", inline=False)
-    embed.add_field(name="!status", value="Status do bot", inline=False)
+    embed = discord.Embed(title="📖 Comandos do Bot", color=discord.Color.green())
+    
+    embed.add_field(name="**🎭 Sistema de Cargos**", value="", inline=False)
+    embed.add_field(name="!cargo", value="Configurar cargo automático", inline=True)
+    embed.add_field(name="!setcargo", value="Cargo para mencionar", inline=True)
+    
+    embed.add_field(name="**🎫 Sistema de Tickets**", value="", inline=False)
+    embed.add_field(name="!ticket", value="Sistema de pedidos de cargo", inline=True)
+    embed.add_field(name="!setupticket", value="Configurar sistema de suporte", inline=True)
+    embed.add_field(name="!ticketpanel", value="Criar painel de tickets", inline=True)
+    
+    embed.add_field(name="**💡 Sistema de Sugestões**", value="", inline=False)
+    embed.add_field(name="!reclamacao", value="Configurar sugestões anônimas", inline=True)
+    
+    embed.add_field(name="**📊 Sistema de Logs**", value="", inline=False)
+    embed.add_field(name="!setlogs", value="Configurar canal de logs", inline=True)
+    embed.add_field(name="!testlog", value="Testar sistema de logs", inline=True)
+    embed.add_field(name="!removelogs", value="Desativar logs", inline=True)
+    
+    embed.add_field(name="**🛠️ Utilitários**", value="", inline=False)
+    embed.add_field(name="!clear", value="Limpar canal", inline=True)
+    embed.add_field(name="!ping", value="Verificar latência", inline=True)
+    embed.add_field(name="!status", value="Status do bot", inline=True)
+    
+    embed.set_footer(text="Use !comando para executar • Apenas administradores podem usar a maioria dos comandos")
     
     await ctx.send(embed=embed)
 
