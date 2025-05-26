@@ -1,11 +1,3 @@
-@bot.command(name="ajuda")
-async def ajuda(ctx):
-    embed = discord.Embed(title="📖 Comandos", color=discord.Color.green())
-    embed.add_field(name="**🎭 Sistema de Cargos**", value="", inline=False)
-    embed.add_field(name="!cargo", value="Configurar cargo automático", inline=True)
-    embed.add_field(name="!setcargo", value="Cargo para mencionar", inline=True)
-    
-    embed.add_field(name="**🎫 Sistema de Tickets**", value="", inline=Falseimport discord
 from discord.ext import commands
 from discord import TextStyle
 from discord.ui import View, Modal, TextInput, Button, Select
