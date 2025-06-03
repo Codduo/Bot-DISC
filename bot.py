@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import TextStyle
 from discord.ui import View, Modal, TextInput, Button, Select
 from discord import SelectOption
@@ -11,7 +11,7 @@ import json
 import sys
 import socket
 import time
-from datetime import datetime
+from datetime import datetime, date
 from dotenv import load_dotenv
 
 # ===== SINGLE INSTANCE CONTROL =====
@@ -65,9 +65,179 @@ mention_roles = {}
 sugestao_channels = {}
 ticket_categories = {}
 ticket_support_roles = {}
+aniversario_channels = {}  # Novo: canais para enviar mensagens de aniversário
 
 # Flag para controlar views
 views_registered = False
+
+# ===== ANIVERSÁRIO SYSTEM =====
+def carregar_aniversarios():
+    """Carrega os dados de aniversário do JSON."""
+    # Tentar diferentes locais e nomes de arquivo possíveis
+    locais_e_nomes = [
+        # Na pasta atual
+        "aniversarios.json",
+        "aniversarios (1).json", 
+        "aniversario.json",
+        "Aniversarios.json",
+        # Na subpasta Bot-DISC
+        "Bot-DISC/aniversarios.json",
+        "Bot-DISC/aniversarios (1).json",
+        "Bot-DISC/aniversario.json",
+        "Bot-DISC/Aniversarios.json",
+        # Outros possíveis caminhos
+        "./Bot-DISC/aniversarios.json",
+        os.path.join("Bot-DISC", "aniversarios.json")
+    ]
+    
+    for caminho_arquivo in locais_e_nomes:
+        try:
+            if os.path.exists(caminho_arquivo):
+                with open(caminho_arquivo, "r", encoding="utf-8") as f:
+                    dados = json.load(f)
+                    print(f"✅ Arquivo {caminho_arquivo} carregado com {len(dados)} aniversários")
+                    return dados
+        except Exception as e:
+            print(f"❌ Erro ao carregar {caminho_arquivo}: {e}")
+            continue
+    
+    print("⚠️ Nenhum arquivo de aniversários encontrado")
+    print("🔍 Locais procurados:", ", ".join(locais_e_nomes))
+    return {}
+
+def verificar_aniversariantes():
+    """Verifica se há aniversariantes hoje."""
+    aniversarios = carregar_aniversarios()
+    hoje = date.today()
+    aniversariantes = []
+    
+    print(f"🔍 Verificando aniversários para {hoje.strftime('%d/%m/%Y')} (dia {hoje.day}, mês {hoje.month})")
+    
+    for user_id, dados in aniversarios.items():
+        try:
+            # Converter string de data para objeto date
+            data_nascimento = datetime.strptime(dados["data_nascimento"], "%Y-%m-%d").date()
+            
+            
+            # Verificar se o dia e mês são iguais ao de hoje
+            if data_nascimento.day == hoje.day and data_nascimento.month == hoje.month:
+                # Calcular idade
+                idade = hoje.year - data_nascimento.year
+                aniversariante = {
+                    "user_id": user_id,
+                    "nome": dados["nome"],
+                    "idade": idade,
+                    "link_foto": dados["link_foto"]
+                }
+                aniversariantes.append(aniversariante)
+                print(f"   ✅ ANIVERSARIANTE ENCONTRADO: {dados['nome']} ({idade} anos)")
+                
+        except Exception as e:
+            print(f"   ⚠️ Erro ao processar aniversário de {user_id}: {e}")
+    
+    print(f"📊 Total de aniversariantes hoje: {len(aniversariantes)}")
+    return aniversariantes
+
+async def enviar_mensagem_aniversario(guild, aniversariante):
+    """Envia mensagem de aniversário personalizada."""
+    guild_id = str(guild.id)
+    canal_id = aniversario_channels.get(guild_id)
+    
+    if not canal_id:
+        return False
+    
+    canal = guild.get_channel(canal_id)
+    if not canal:
+        return False
+    
+    try:
+        # Tentar pegar o membro do servidor
+        member = guild.get_member(int(aniversariante["user_id"]))
+        
+        # Criar embed bonito
+        embed = discord.Embed(
+            title="🎉 FELIZ ANIVERSÁRIO! 🎂",
+            description=f"**{aniversariante['nome']}** está fazendo **{aniversariante['idade']} anos** hoje! 🎈",
+            color=0xFFD700  # Cor dourada
+        )
+        
+        # Adicionar campos
+        embed.add_field(
+            name="🎁 Desejamos", 
+            value="Muitas felicidades, saúde e prosperidade!", 
+            inline=False
+        )
+        embed.add_field(
+            name="🎊 Idade", 
+            value=f"{aniversariante['idade']} anos", 
+            inline=True
+        )
+        
+        if member:
+            embed.add_field(
+                name="👤 Membro", 
+                value=member.mention, 
+                inline=True
+            )
+        
+        # Adicionar foto se disponível
+        if aniversariante["link_foto"] and aniversariante["link_foto"] != "https://drive.google.com/exemplo":
+            embed.set_image(url=aniversariante["link_foto"])
+        
+        embed.set_footer(text=f"Data de nascimento: {aniversariante['nome']}")
+        embed.timestamp = datetime.now()
+        
+        # Mensagem especial
+        mensagens_especiais = [
+            f"🎉 Todo mundo, vamos comemorar! Hoje é aniversário do(a) **{aniversariante['nome']}**! 🎂",
+            f"🎈 Um feliz aniversário para nosso(a) querido(a) **{aniversariante['nome']}**! 🎁",
+            f"🎊 Parabéns, **{aniversariante['nome']}**! Que este novo ano seja incrível! 🌟"
+        ]
+        
+        import random
+        mensagem = random.choice(mensagens_especiais)
+        
+        # Mencionar a pessoa se ela estiver no servidor
+        if member:
+            mensagem = f"{member.mention} {mensagem}"
+        
+        await canal.send(content=mensagem, embed=embed)
+        return True
+        
+    except Exception as e:
+        print(f"❌ Erro ao enviar mensagem de aniversário: {e}")
+        return False
+
+@tasks.loop(hours=24)
+async def verificar_aniversarios_task():
+    """Task que roda todo dia para verificar aniversários."""
+    print("🔍 Verificando aniversários do dia...")
+    
+    aniversariantes = verificar_aniversariantes()
+    
+    if not aniversariantes:
+        print("ℹ️ Nenhum aniversariante hoje")
+        return
+    
+    print(f"🎉 {len(aniversariantes)} aniversariante(s) encontrado(s)!")
+    
+    # Enviar mensagem para todos os servidores configurados
+    for guild in bot.guilds:
+        for aniversariante in aniversariantes:
+            # Verificar se a pessoa está neste servidor
+            member = guild.get_member(int(aniversariante["user_id"]))
+            if member:  # Só enviar se a pessoa estiver no servidor
+                sucesso = await enviar_mensagem_aniversario(guild, aniversariante)
+                if sucesso:
+                    print(f"✅ Mensagem de aniversário enviada para {aniversariante['nome']} em {guild.name}")
+                else:
+                    print(f"❌ Falha ao enviar mensagem para {aniversariante['nome']} em {guild.name}")
+
+@verificar_aniversarios_task.before_loop
+async def before_verificar_aniversarios():
+    """Espera o bot estar pronto antes de começar a task."""
+    await bot.wait_until_ready()
+    print("🤖 Bot pronto - Iniciando verificação de aniversários")
 
 # ===== CONFIGURAÇÕES DOS TIPOS DE SUPORTE =====
 SUPPORT_TYPES = {
@@ -106,6 +276,7 @@ def salvar_dados():
         "sugestao_channels": sugestao_channels,
         "ticket_categories": ticket_categories,
         "ticket_support_roles": ticket_support_roles,
+        "aniversario_channels": aniversario_channels,  # Novo campo
     }
     
     try:
@@ -125,6 +296,7 @@ def carregar_dados():
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
                 ticket_categories.update(dados.get("ticket_categories", {}))
                 ticket_support_roles.update(dados.get("ticket_support_roles", {}))
+                aniversario_channels.update(dados.get("aniversario_channels", {}))  # Novo campo
                 print("✅ Dados carregados com sucesso")
     except Exception as e:
         print(f"⚠️ Erro ao carregar dados: {e}")
@@ -364,6 +536,12 @@ async def on_ready():
             bot.add_view(TicketCloseView())
             views_registered = True
             print("✅ Views registradas com sucesso")
+            
+            # Iniciar task de aniversários
+            if not verificar_aniversarios_task.is_running():
+                verificar_aniversarios_task.start()
+                print("🎂 Sistema de aniversários iniciado")
+                
         except Exception as e:
             print(f"❌ Erro ao registrar views: {e}")
     else:
@@ -398,6 +576,7 @@ async def on_guild_remove(guild):
     sugestao_channels.pop(guild_id, None)
     ticket_categories.pop(guild_id, None)
     ticket_support_roles.pop(guild_id, None)
+    aniversario_channels.pop(guild_id, None)  # Novo campo
     salvar_dados()
 
 # ===== COMMANDS =====
@@ -475,6 +654,248 @@ async def ticket(ctx):
     view = View()
     view.add_item(ChannelSelect())
     await ctx.send("📌 Escolha o canal:", view=view)
+
+# ===== COMANDO DE DEBUG =====
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def debugjson(ctx):
+    """Debug para encontrar o arquivo JSON."""
+    import os
+    
+    embed = discord.Embed(title="🔍 Debug - Arquivo JSON", color=discord.Color.yellow())
+    
+    # Verificar diretório atual
+    diretorio_atual = os.getcwd()
+    embed.add_field(name="📁 Diretório atual", value=f"`{diretorio_atual}`", inline=False)
+    
+    # Listar arquivos na pasta
+    arquivos = os.listdir(diretorio_atual)
+    arquivos_json = [f for f in arquivos if f.endswith('.json')]
+    
+    if arquivos_json:
+        lista_json = "\n".join([f"`{arquivo}`" for arquivo in arquivos_json])
+        embed.add_field(name="📄 Arquivos JSON encontrados", value=lista_json, inline=False)
+    else:
+        embed.add_field(name="📄 Arquivos JSON", value="❌ Nenhum arquivo .json encontrado", inline=False)
+    
+    # Verificar especificamente os nomes possíveis
+    nomes_possiveis = ["aniversarios.json", "aniversarios (1).json", "aniversario.json"]
+    for nome in nomes_possiveis:
+        existe = os.path.exists(nome)
+        status = "✅" if existe else "❌"
+        embed.add_field(name=f"🔍 {nome}", value=f"{status} {'Existe' if existe else 'Não encontrado'}", inline=True)
+    
+    await ctx.send(embed=embed)
+
+# ===== COMANDO DE ANIVERSÁRIO =====
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def aniversario(ctx):
+    """Configura o canal para mensagens de aniversário."""
+    channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+    if not channels:
+        await ctx.send("❌ Nenhum canal disponível")
+        return
+
+    options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in channels[:25]]
+
+    class AniversarioChannelSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Canal para mensagens de aniversário", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            channel_id = int(self.values[0])
+            aniversario_channels[str(ctx.guild.id)] = channel_id
+            salvar_dados()
+            await interaction.response.send_message(f"🎂 Canal de aniversários configurado: <#{channel_id}>", ephemeral=True)
+
+    view = View()
+    view.add_item(AniversarioChannelSelect())
+    await ctx.send("🎉 Escolha o canal para aniversários:", view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def testaraniversario(ctx):
+    """Testa o sistema de aniversário manualmente."""
+    aniversariantes = verificar_aniversariantes()
+    
+    if not aniversariantes:
+        await ctx.send("ℹ️ Nenhum aniversariante encontrado para hoje")
+        return
+    
+    # Verificar se o canal está configurado
+    guild_id = str(ctx.guild.id)
+    if guild_id not in aniversario_channels:
+        await ctx.send("❌ Configure o canal de aniversários primeiro com `!aniversario`")
+        return
+    
+    enviados = 0
+    for aniversariante in aniversariantes:
+        # Verificar se a pessoa está neste servidor
+        member = ctx.guild.get_member(int(aniversariante["user_id"]))
+        if member:
+            sucesso = await enviar_mensagem_aniversario(ctx.guild, aniversariante)
+            if sucesso:
+                enviados += 1
+    
+    await ctx.send(f"✅ {enviados} mensagem(s) de aniversário enviada(s)!")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def debuganiversarios(ctx):
+    """Debug detalhado dos aniversários."""
+    aniversarios = carregar_aniversarios()
+    
+    if not aniversarios:
+        await ctx.send("❌ Nenhum aniversário carregado")
+        return
+    
+    hoje = date.today()
+    embed = discord.Embed(title="🔍 Debug Aniversários Detalhado", color=discord.Color.blue())
+    
+    # Informações básicas
+    embed.add_field(name="📅 Data de hoje", value=f"{hoje.strftime('%d/%m/%Y')} (dia {hoje.day}, mês {hoje.month})", inline=False)
+    embed.add_field(name="📊 Total carregado", value=f"{len(aniversarios)} pessoas", inline=True)
+    
+    # Verificar aniversários de junho
+    junho_count = 0
+    aniversariantes_junho = []
+    hoje_count = 0
+    
+    for user_id, dados in aniversarios.items():
+        try:
+            # Debug da data
+            data_str = dados["data_nascimento"]
+            data_nascimento = datetime.strptime(data_str, "%Y-%m-%d").date()
+            
+            # Verificar se é junho
+            if data_nascimento.month == 6:
+                junho_count += 1
+                member = ctx.guild.get_member(int(user_id))
+                status = "✅" if member else "❌"
+                aniversariantes_junho.append(f"**{data_nascimento.day}/06** - {dados['nome'][:15]}... {status}")
+                
+                # Verificar se é hoje
+                if data_nascimento.day == hoje.day and data_nascimento.month == hoje.month:
+                    hoje_count += 1
+                    
+        except Exception as e:
+            embed.add_field(name=f"❌ Erro em {user_id}", value=f"Data: {dados.get('data_nascimento', 'N/A')}\nErro: {str(e)[:50]}", inline=True)
+    
+    embed.add_field(name="🎂 Aniversários em Junho", value=f"{junho_count} pessoas", inline=True)
+    embed.add_field(name="🎉 Aniversários HOJE", value=f"{hoje_count} pessoas", inline=True)
+    
+    # Mostrar alguns aniversários de junho
+    if aniversariantes_junho:
+        lista_junho = "\n".join(aniversariantes_junho[:10])  # Máximo 10
+        if len(aniversariantes_junho) > 10:
+            lista_junho += f"\n... e mais {len(aniversariantes_junho) - 10}"
+        embed.add_field(name="📋 Aniversários de Junho", value=lista_junho, inline=False)
+    
+    # Mostrar 3 exemplos de datas do JSON para debug
+    exemplos = []
+    for i, (user_id, dados) in enumerate(list(aniversarios.items())[:3]):
+        try:
+            data_str = dados["data_nascimento"]
+            data_obj = datetime.strptime(data_str, "%Y-%m-%d").date()
+            exemplos.append(f"`{data_str}` → Dia {data_obj.day}, Mês {data_obj.month}")
+        except:
+            exemplos.append(f"`{dados.get('data_nascimento', 'N/A')}` → ERRO")
+    
+    embed.add_field(name="🔍 Exemplos de datas", value="\n".join(exemplos), inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def carregarjson(ctx):
+    """Força o carregamento do JSON manualmente."""
+    try:
+        aniversarios = carregar_aniversarios()
+        
+        if aniversarios:
+            embed = discord.Embed(title="✅ JSON Carregado!", color=discord.Color.green())
+            embed.add_field(name="📊 Total de pessoas", value=len(aniversarios), inline=True)
+            
+            # Mostrar algumas amostras
+            amostras = list(aniversarios.items())[:3]
+            for user_id, dados in amostras:
+                member = ctx.guild.get_member(int(user_id))
+                status = "✅ No servidor" if member else "❌ Não está no servidor"
+                embed.add_field(
+                    name=f"👤 {dados['nome'][:20]}...", 
+                    value=f"Nascimento: {dados['data_nascimento']}\n{status}", 
+                    inline=True
+                )
+            
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Não foi possível carregar o arquivo JSON")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Erro: {e}")
+
+@bot.command()
+async def listaraniversarios(ctx):
+    """Lista todos os aniversários do mês atual."""
+    aniversarios = carregar_aniversarios()
+    hoje = date.today()
+    mes_atual = hoje.month
+    
+    print(f"🔍 Listando aniversários do mês {mes_atual} ({hoje.strftime('%B')})")
+    
+    aniversariantes_mes = []
+    
+    for user_id, dados in aniversarios.items():
+        try:
+            data_nascimento = datetime.strptime(dados["data_nascimento"], "%Y-%m-%d").date()
+            print(f"   Verificando {dados['nome']}: nascimento mês {data_nascimento.month}")
+            
+            if data_nascimento.month == mes_atual:
+                # Verificar se a pessoa está no servidor
+                member = ctx.guild.get_member(int(user_id))
+                if member:  # Só adicionar se estiver no servidor
+                    aniversariantes_mes.append({
+                        "dia": data_nascimento.day,
+                        "nome": dados["nome"],
+                        "member": member
+                    })
+                    print(f"   ✅ Adicionado: {dados['nome']} (dia {data_nascimento.day})")
+                else:
+                    print(f"   ❌ {dados['nome']} não está no servidor")
+        except Exception as e:
+            print(f"   ⚠️ Erro com {user_id}: {e}")
+            continue
+    
+    print(f"📊 Total encontrado no servidor: {len(aniversariantes_mes)}")
+    
+    if not aniversariantes_mes:
+        embed = discord.Embed(
+            title=f"ℹ️ Aniversários de {datetime.now().strftime('%B')}",
+            description="Nenhum aniversariante neste mês no servidor",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="🔍 Debug", value=f"Verificados: {len(aniversarios)} registros\nMês atual: {mes_atual}", inline=False)
+        await ctx.send(embed=embed)
+        return
+    
+    # Ordenar por dia
+    aniversariantes_mes.sort(key=lambda x: x["dia"])
+    
+    embed = discord.Embed(
+        title=f"🎂 Aniversariantes de {datetime.now().strftime('%B')}",
+        color=discord.Color.gold()
+    )
+    
+    lista = ""
+    for aniv in aniversariantes_mes:
+        status = "🎉 **HOJE!**" if aniv["dia"] == hoje.day else ""
+        lista += f"**{aniv['dia']:02d}** - {aniv['nome']} {status}\n"
+    
+    embed.description = lista
+    embed.set_footer(text=f"Total: {len(aniversariantes_mes)} aniversariante(s) no servidor")
+    
+    await ctx.send(embed=embed)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -617,6 +1038,7 @@ async def status(ctx):
     embed.add_field(name="👥 Usuários", value=len(bot.users), inline=True)
     embed.add_field(name="📋 Views", value="✅ Ativas" if views_registered else "❌ Inativas", inline=True)
     embed.add_field(name="🔒 Instância", value="✅ Única", inline=True)
+    embed.add_field(name="🎂 Aniversários", value="✅ Ativo" if verificar_aniversarios_task.is_running() else "❌ Inativo", inline=True)
     
     await ctx.send(embed=embed)
 
@@ -629,6 +1051,11 @@ async def ajuda(ctx):
     embed.add_field(name="!setupticket", value="Configurar tickets", inline=False)
     embed.add_field(name="!ticketpanel", value="Painel de tickets", inline=False)
     embed.add_field(name="!reclamacao", value="Sugestões anônimas", inline=False)
+    embed.add_field(name="!aniversario", value="🎂 Configurar aniversários", inline=False)
+    embed.add_field(name="!listaraniversarios", value="🎉 Ver aniversários do mês", inline=False)
+    embed.add_field(name="!testaraniversario", value="🧪 Testar sistema (Admin)", inline=False)
+    embed.add_field(name="!debuganiversarios", value="🔍 Debug detalhado (Admin)", inline=False)
+    embed.add_field(name="!carregarjson", value="📁 Carregar JSON (Admin)", inline=False)
     embed.add_field(name="!clear", value="Limpar canal", inline=False)
     embed.add_field(name="!ping", value="Testar bot", inline=False)
     embed.add_field(name="!status", value="Status do bot", inline=False)
