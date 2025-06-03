@@ -27,7 +27,7 @@
   "1361394759444332736": {
     "nome": "JESSICA RIFFEL ROTHER",
     "data_nascimento": "1995-06-09",
-    "link_foto": "https://drive.google.com/exemplo"
+    "link_foto": "https://cdn.discordapp.com/attachments/1379463866127486976/1379521823535923351/8sJ0aXjA.png?ex=68408b51&is=683f39d1&hm=d69951731e420eb0347438f9baefd41bb9983193f5b4e77b2b06986ce405ed6c&"
   },
   "1361398071019180112": {
     "nome": "KAREN SOCHODOLAK",
@@ -37,7 +37,7 @@
   "1361399522411942120": {
     "nome": "LUCAS EDUARDO RACELLI PRESTES GOMES",
     "data_nascimento": "2003-06-05",
-    "link_foto": "https://cdn.discordapp.com/attachments/1379463866127486976/1379464233812623390/72.jpg?ex=684055ae&is=683f042e&hm=45d126d2cb94986886eedbec7d520ba3ffc687f609e3bd62673a4e5a97cfcb8f&"
+    "link_foto": "https://cdn.discordapp.com/attachments/1379463866127486976/1379521823992971294/B-PC2u9Q.png?ex=68408b51&is=683f39d1&hm=6dc4d809dd3638f71c531fb6e923fccd73ae9ef58ac3f69b08c9d4a032ea39f7&"
   },
   "1361395146217754765": {
     "nome": "MARGARETE DORAK",
@@ -82,7 +82,7 @@
   "1361413125756289247": {
     "nome": "EVAIR GONÇALVES DE OLIVEIRA",
     "data_nascimento": "1995-06-20",
-    "link_foto": "https://drive.google.com/exemplo"
+    "link_foto": "https://cdn.discordapp.com/attachments/1379463866127486976/1379521825138151595/XI7R-96A.png?ex=68408b51&is=683f39d1&hm=41851bc83e95db8fa611274df5bee39a9a0426e6adc483a6dd2d43f11d1dd21a&"
   },
   "1361380831855251549": {
     "nome": "LIEDSON WINHARSKI",
@@ -143,12 +143,7 @@
     "nome": "JOSE HENRIQUE KROKOCH DE ARAUJO",
     "data_nascimento": "2001-11-23",
     "link_foto": "https://drive.google.com/exemplo"
-  },
-  "1361411759604498595": {
-    "nome": "JOSE HENRIQUE KROKOCH DE ARAUJO",
-    "data_nascimento": "2001-11-23",
-    "link_foto": "https://drive.google.com/exemplo"
-  },
+  }
   "1361412739595112468": {
     "nome": "MARIA RITA LOPES",
     "data_nascimento": "2000-10-28",
@@ -183,5 +178,20 @@
     "nome": "LEONARDO MARCONATO",
     "data_nascimento": "2006-11-11",
     "link_foto": "link"
+  },
+  "1371454821789601792": {
+    "nome": "ANDREY BOIKO",
+    "data_nascimento": "2006-06-15",
+    "link_foto": "https://cdn.discordapp.com/attachments/1379463866127486976/1379521823200514078/Q4Di3w-A.png?ex=68408b50&is=683f39d0&hm=e0619c6c1b554765bb9d8a05d0ab90bbe5dec5c59ae02a169d88ef7645033b27&"
+  },
+  "1373982787996090380": {
+    "nome": "HENRIQUE GEREI",
+    "data_nascimento": "2006-06-02",
+    "link_foto": "https://cdn.discordapp.com/attachments/1379463866127486976/1379521824613732402/iLmWCclQ.png?ex=68408b51&is=683f39d1&hm=840b2735d6da7b7bfff2a2cf4ae7851beb359f2a065fa237b291267e14463113&"
+  },
+  "1361397897756803163": {
+    "nome": "JAQUELINE PAPIRNIAK",
+    "data_nascimento": "2006-06-16",
+    "link_foto": "https://media.discordapp.net/attachments/1379463866127486976/1379521822667571341/gfVK06-Q.png?ex=68408b50&is=683f39d0&hm=fca757cfeface96a0570790353274bce321c1ac35b671ed529a93f5bdcf7841d&=&format=webp&quality=lossless&width=450&height=800"
   }
 }
