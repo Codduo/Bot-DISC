@@ -11,7 +11,7 @@ import json
 import sys
 import socket
 import time
-from datetime import datetime, date
+from datetime import datetime, date, time as dt_time
 from dotenv import load_dotenv
 
 # ===== SINGLE INSTANCE CONTROL =====
@@ -65,7 +65,8 @@ mention_roles = {}
 sugestao_channels = {}
 ticket_categories = {}
 ticket_support_roles = {}
-aniversario_channels = {}  # Novo: canais para enviar mensagens de aniversário
+aniversario_channels = {}  # Canais para enviar mensagens de aniversário
+mensagens_enviadas_hoje = {}  # Novo: controle de mensagens já enviadas
 
 # Flag para controlar views
 views_registered = False
@@ -105,6 +106,40 @@ def carregar_aniversarios():
     print("🔍 Locais procurados:", ", ".join(locais_e_nomes))
     return {}
 
+def carregar_controle_mensagens():
+    """Carrega o controle de mensagens já enviadas."""
+    try:
+        if os.path.exists("mensagens_aniversario.json"):
+            with open("mensagens_aniversario.json", "r", encoding="utf-8") as f:
+                dados = json.load(f)
+                mensagens_enviadas_hoje.update(dados)
+                print("✅ Controle de mensagens carregado")
+    except Exception as e:
+        print(f"⚠️ Erro ao carregar controle de mensagens: {e}")
+
+def salvar_controle_mensagens():
+    """Salva o controle de mensagens enviadas."""
+    try:
+        with open("mensagens_aniversario.json", "w", encoding="utf-8") as f:
+            json.dump(mensagens_enviadas_hoje, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"⚠️ Erro ao salvar controle de mensagens: {e}")
+
+def limpar_controle_diario():
+    """Limpa o controle de mensagens se mudou o dia."""
+    hoje = date.today().isoformat()
+    
+    # Se há registros de outros dias, limpar
+    if mensagens_enviadas_hoje and list(mensagens_enviadas_hoje.keys())[0] != hoje:
+        print(f"🧹 Limpando controle de mensagens - novo dia: {hoje}")
+        mensagens_enviadas_hoje.clear()
+        mensagens_enviadas_hoje[hoje] = []
+        salvar_controle_mensagens()
+    
+    # Se não há registro para hoje, criar
+    if hoje not in mensagens_enviadas_hoje:
+        mensagens_enviadas_hoje[hoje] = []
+
 def verificar_aniversariantes():
     """Verifica se há aniversariantes hoje."""
     aniversarios = carregar_aniversarios()
@@ -117,7 +152,6 @@ def verificar_aniversariantes():
         try:
             # Converter string de data para objeto date
             data_nascimento = datetime.strptime(dados["data_nascimento"], "%Y-%m-%d").date()
-            
             
             # Verificar se o dia e mês são iguais ao de hoje
             if data_nascimento.day == hoje.day and data_nascimento.month == hoje.month:
@@ -138,6 +172,21 @@ def verificar_aniversariantes():
     print(f"📊 Total de aniversariantes hoje: {len(aniversariantes)}")
     return aniversariantes
 
+def ja_enviou_mensagem_hoje(user_id):
+    """Verifica se já enviou mensagem para este usuário hoje."""
+    hoje = date.today().isoformat()
+    return user_id in mensagens_enviadas_hoje.get(hoje, [])
+
+def marcar_mensagem_enviada(user_id):
+    """Marca que a mensagem foi enviada para este usuário hoje."""
+    hoje = date.today().isoformat()
+    if hoje not in mensagens_enviadas_hoje:
+        mensagens_enviadas_hoje[hoje] = []
+    
+    if user_id not in mensagens_enviadas_hoje[hoje]:
+        mensagens_enviadas_hoje[hoje].append(user_id)
+        salvar_controle_mensagens()
+
 async def enviar_mensagem_aniversario(guild, aniversariante):
     """Envia mensagem de aniversário personalizada."""
     guild_id = str(guild.id)
@@ -148,6 +197,11 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
     
     canal = guild.get_channel(canal_id)
     if not canal:
+        return False
+    
+    # Verificar se já enviou para este usuário hoje
+    if ja_enviou_mensagem_hoje(aniversariante["user_id"]):
+        print(f"⚠️ Mensagem já enviada hoje para {aniversariante['nome']}")
         return False
     
     try:
@@ -173,7 +227,6 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
             inline=True
         )
 
-        
         if member:
             embed.add_field(
                 name="👤 Membro", 
@@ -203,16 +256,29 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
             mensagem = f"{member.mention} {mensagem}"
         
         await canal.send(content=mensagem, embed=embed)
+        
+        # Marcar como enviado
+        marcar_mensagem_enviada(aniversariante["user_id"])
+        
         return True
         
     except Exception as e:
         print(f"❌ Erro ao enviar mensagem de aniversário: {e}")
         return False
 
-@tasks.loop(hours=24)
+@tasks.loop(minutes=30)  # Verificar a cada 30 minutos
 async def verificar_aniversarios_task():
-    """Task que roda todo dia para verificar aniversários."""
-    print("🔍 Verificando aniversários do dia...")
+    """Task que verifica aniversários apenas às 7h da manhã."""
+    agora = datetime.now()
+    
+    # Verificar se são 7h da manhã (entre 7:00 e 7:29)
+    if agora.hour != 7:
+        return
+    
+    print(f"🕰️ São {agora.strftime('%H:%M')} - Verificando aniversários...")
+    
+    # Limpar controle diário se necessário
+    limpar_controle_diario()
     
     aniversariantes = verificar_aniversariantes()
     
@@ -238,7 +304,7 @@ async def verificar_aniversarios_task():
 async def before_verificar_aniversarios():
     """Espera o bot estar pronto antes de começar a task."""
     await bot.wait_until_ready()
-    print("🤖 Bot pronto - Iniciando verificação de aniversários")
+    print("🤖 Bot pronto - Iniciando verificação de aniversários (apenas às 7h)")
 
 # ===== CONFIGURAÇÕES DOS TIPOS DE SUPORTE =====
 SUPPORT_TYPES = {
@@ -277,7 +343,7 @@ def salvar_dados():
         "sugestao_channels": sugestao_channels,
         "ticket_categories": ticket_categories,
         "ticket_support_roles": ticket_support_roles,
-        "aniversario_channels": aniversario_channels,  # Novo campo
+        "aniversario_channels": aniversario_channels,
     }
     
     try:
@@ -297,7 +363,7 @@ def carregar_dados():
                 sugestao_channels.update(dados.get("sugestao_channels", {}))
                 ticket_categories.update(dados.get("ticket_categories", {}))
                 ticket_support_roles.update(dados.get("ticket_support_roles", {}))
-                aniversario_channels.update(dados.get("aniversario_channels", {}))  # Novo campo
+                aniversario_channels.update(dados.get("aniversario_channels", {}))
                 print("✅ Dados carregados com sucesso")
     except Exception as e:
         print(f"⚠️ Erro ao carregar dados: {e}")
@@ -538,10 +604,13 @@ async def on_ready():
             views_registered = True
             print("✅ Views registradas com sucesso")
             
+            # Carregar controle de mensagens de aniversário
+            carregar_controle_mensagens()
+            
             # Iniciar task de aniversários
             if not verificar_aniversarios_task.is_running():
                 verificar_aniversarios_task.start()
-                print("🎂 Sistema de aniversários iniciado")
+                print("🎂 Sistema de aniversários iniciado (verifica apenas às 7h)")
                 
         except Exception as e:
             print(f"❌ Erro ao registrar views: {e}")
@@ -577,7 +646,7 @@ async def on_guild_remove(guild):
     sugestao_channels.pop(guild_id, None)
     ticket_categories.pop(guild_id, None)
     ticket_support_roles.pop(guild_id, None)
-    aniversario_channels.pop(guild_id, None)  # Novo campo
+    aniversario_channels.pop(guild_id, None)
     salvar_dados()
 
 # ===== COMMANDS =====
