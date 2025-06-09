@@ -157,7 +157,7 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
         # Criar embed bonito
         embed = discord.Embed(
             title="🎉 FELIZ ANIVERSÁRIO! 🎂",
-            description=f"**{aniversariante['nome']}** está fazendo **{aniversariante['idade']} anos** hoje! 🎈",
+            description=f"**{aniversariante['nome']}** ! 🎈",
             color=0xFFD700  # Cor dourada
         )
         
@@ -172,6 +172,7 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
             value=f"{aniversariante['idade']} anos", 
             inline=True
         )
+
         
         if member:
             embed.add_field(
@@ -184,7 +185,7 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
         if aniversariante["link_foto"] and aniversariante["link_foto"] != "https://drive.google.com/exemplo":
             embed.set_image(url=aniversariante["link_foto"])
         
-        embed.set_footer(text=f"Data de nascimento: {aniversariante['nome']}")
+        embed.set_footer(text=f"Desejamos a você um feliz aniversário {aniversariante['nome']}!")
         embed.timestamp = datetime.now()
         
         # Mensagem especial
