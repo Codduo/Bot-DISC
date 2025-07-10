@@ -66,7 +66,7 @@ sugestao_channels = {}
 ticket_categories = {}
 ticket_support_roles = {}
 aniversario_channels = {}  # Canais para enviar mensagens de aniversário
-mensagens_enviadas_hoje = {}  # Novo: controle de mensagens já enviadas
+mensagens_enviadas_hoje = {}  # Controle de mensagens já enviadas
 
 # Flag para controlar views
 views_registered = False
@@ -193,10 +193,12 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
     canal_id = aniversario_channels.get(guild_id)
     
     if not canal_id:
+        print(f"⚠️ Canal de aniversário não configurado para {guild.name}")
         return False
     
     canal = guild.get_channel(canal_id)
     if not canal:
+        print(f"⚠️ Canal ID {canal_id} não encontrado em {guild.name}")
         return False
     
     # Verificar se já enviou para este usuário hoje
@@ -260,6 +262,7 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
         # Marcar como enviado
         marcar_mensagem_enviada(aniversariante["user_id"])
         
+        print(f"✅ Mensagem de aniversário enviada para {aniversariante['nome']} em {guild.name}")
         return True
         
     except Exception as e:
@@ -269,42 +272,46 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
 @tasks.loop(minutes=30)  # Verificar a cada 30 minutos
 async def verificar_aniversarios_task():
     """Task que verifica aniversários apenas às 7h da manhã."""
-    agora = datetime.now()
-    
-    # Verificar se são 7h da manhã (entre 7:00 e 7:29)
-    if agora.hour != 7:
-        return
-    
-    print(f"🕰️ São {agora.strftime('%H:%M')} - Verificando aniversários...")
-    
-    # Limpar controle diário se necessário
-    limpar_controle_diario()
-    
-    aniversariantes = verificar_aniversariantes()
-    
-    if not aniversariantes:
-        print("ℹ️ Nenhum aniversariante hoje")
-        return
-    
-    print(f"🎉 {len(aniversariantes)} aniversariante(s) encontrado(s)!")
-    
-    # Enviar mensagem para todos os servidores configurados
-    for guild in bot.guilds:
-        for aniversariante in aniversariantes:
-            # Verificar se a pessoa está neste servidor
-            member = guild.get_member(int(aniversariante["user_id"]))
-            if member:  # Só enviar se a pessoa estiver no servidor
-                sucesso = await enviar_mensagem_aniversario(guild, aniversariante)
-                if sucesso:
-                    print(f"✅ Mensagem de aniversário enviada para {aniversariante['nome']} em {guild.name}")
-                else:
-                    print(f"❌ Falha ao enviar mensagem para {aniversariante['nome']} em {guild.name}")
+    try:
+        agora = datetime.now()
+        
+        # CORREÇÃO: Remover a restrição de horário para testar
+        # Verificar se são 7h da manhã (entre 7:00 e 7:29)
+        # if agora.hour != 7:
+        #     return
+        
+        print(f"🕰️ São {agora.strftime('%H:%M')} - Verificando aniversários...")
+        
+        # Limpar controle diário se necessário
+        limpar_controle_diario()
+        
+        aniversariantes = verificar_aniversariantes()
+        
+        if not aniversariantes:
+            print("ℹ️ Nenhum aniversariante hoje")
+            return
+        
+        print(f"🎉 {len(aniversariantes)} aniversariante(s) encontrado(s)!")
+        
+        # Enviar mensagem para todos os servidores configurados
+        for guild in bot.guilds:
+            for aniversariante in aniversariantes:
+                # Verificar se a pessoa está neste servidor
+                member = guild.get_member(int(aniversariante["user_id"]))
+                if member:  # Só enviar se a pessoa estiver no servidor
+                    sucesso = await enviar_mensagem_aniversario(guild, aniversariante)
+                    if sucesso:
+                        print(f"✅ Mensagem de aniversário enviada para {aniversariante['nome']} em {guild.name}")
+                    else:
+                        print(f"❌ Falha ao enviar mensagem para {aniversariante['nome']} em {guild.name}")
+    except Exception as e:
+        print(f"❌ Erro na task de aniversários: {e}")
 
 @verificar_aniversarios_task.before_loop
 async def before_verificar_aniversarios():
     """Espera o bot estar pronto antes de começar a task."""
     await bot.wait_until_ready()
-    print("🤖 Bot pronto - Iniciando verificação de aniversários (apenas às 7h)")
+    print("🤖 Bot pronto - Iniciando verificação de aniversários")
 
 # ===== CONFIGURAÇÕES DOS TIPOS DE SUPORTE =====
 SUPPORT_TYPES = {
@@ -349,6 +356,7 @@ def salvar_dados():
     try:
         with open("dados_servidor.json", "w", encoding="utf-8") as f:
             json.dump(dados, f, indent=4, ensure_ascii=False)
+        print("✅ Dados salvos com sucesso")
     except Exception as e:
         print(f"⚠️ Erro ao salvar dados: {e}")
 
@@ -374,35 +382,51 @@ class TicketModal(Modal, title="Solicitar Cargo"):
     cargo = TextInput(label="Setor / Cargo desejado", placeholder="Ex: Financeiro, RH...", style=TextStyle.paragraph)
 
     async def on_submit(self, interaction: discord.Interaction):
-        mod_channel_id = ticket_response_channels.get(str(interaction.guild.id))
-        mod_channel = bot.get_channel(mod_channel_id)
-        cargo_id = mention_roles.get(str(interaction.guild.id))
-
         try:
-            await interaction.user.edit(nick=self.nome.value)
-        except discord.Forbidden:
-            await interaction.response.send_message("❌ Não consegui alterar seu apelido", ephemeral=True)
-            return
+            mod_channel_id = ticket_response_channels.get(str(interaction.guild.id))
+            mod_channel = bot.get_channel(mod_channel_id) if mod_channel_id else None
+            cargo_id = mention_roles.get(str(interaction.guild.id))
 
-        if not mod_channel:
-            await interaction.response.send_message("❌ Canal não configurado", ephemeral=True)
-            return
+            # Tentar alterar nickname
+            try:
+                await interaction.user.edit(nick=self.nome.value)
+            except discord.Forbidden:
+                await interaction.response.send_message("❌ Não consegui alterar seu apelido (sem permissão)", ephemeral=True)
+                return
+            except Exception as e:
+                print(f"⚠️ Erro ao alterar nickname: {e}")
 
-        embed = discord.Embed(title="📉 Novo Pedido de Cargo", color=discord.Color.blurple())
-        embed.add_field(name="Usuário", value=interaction.user.mention, inline=False)
-        embed.add_field(name="Cargo desejado", value=self.cargo.value, inline=False)
-        embed.set_footer(text=f"ID: {interaction.user.id}")
+            if not mod_channel:
+                await interaction.response.send_message("❌ Canal de tickets não configurado. Contate um administrador.", ephemeral=True)
+                return
 
-        mention = f"<@&{cargo_id}>" if cargo_id else ""
-        await mod_channel.send(content=mention, embed=embed)
-        await interaction.response.send_message("✅ Pedido enviado!", ephemeral=True)
+            embed = discord.Embed(title="📋 Novo Pedido de Cargo", color=discord.Color.blurple())
+            embed.add_field(name="👤 Usuário", value=interaction.user.mention, inline=False)
+            embed.add_field(name="📝 Nome", value=self.nome.value, inline=True)
+            embed.add_field(name="💼 Cargo desejado", value=self.cargo.value, inline=False)
+            embed.set_footer(text=f"ID: {interaction.user.id}")
+            embed.timestamp = datetime.now()
+
+            mention = f"<@&{cargo_id}>" if cargo_id else ""
+            await mod_channel.send(content=mention, embed=embed)
+            await interaction.response.send_message("✅ Pedido de cargo enviado com sucesso!", ephemeral=True)
+            
+        except Exception as e:
+            print(f"❌ Erro no TicketModal: {e}")
+            try:
+                await interaction.response.send_message("❌ Erro interno. Tente novamente.", ephemeral=True)
+            except:
+                pass
 
 class TicketButton(Button):
     def __init__(self):
         super().__init__(label="Solicitar cargo", emoji="📬", style=discord.ButtonStyle.secondary, custom_id="ticket_button")
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(TicketModal())
+        try:
+            await interaction.response.send_modal(TicketModal())
+        except Exception as e:
+            print(f"❌ Erro no TicketButton: {e}")
 
 class TicketButtonView(View):
     def __init__(self):
@@ -420,35 +444,41 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
         self.title = f"Ticket - {SUPPORT_TYPES[support_type]['name']}"
 
     async def on_submit(self, interaction: discord.Interaction):
-        guild_id = str(interaction.guild.id)
-        category_id = ticket_categories.get(guild_id)
-        
-        if not category_id:
-            await interaction.response.send_message("❌ Sistema não configurado", ephemeral=True)
-            return
-            
-        category = interaction.guild.get_channel(category_id)
-        
-        if not category:
-            await interaction.response.send_message("❌ Categoria não encontrada", ephemeral=True)
-            return
-
-        # Obter informações do tipo de suporte
-        support_info = SUPPORT_TYPES[self.support_type]
-        support_role = interaction.guild.get_role(support_info['role_id'])
-
-        ticket_name = f"ticket-{self.support_type}-{interaction.user.name.lower().replace(' ', '-')}"
-        
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True)
-        }
-        
-        if support_role:
-            overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True)
-
         try:
+            guild_id = str(interaction.guild.id)
+            category_id = ticket_categories.get(guild_id)
+            
+            if not category_id:
+                await interaction.response.send_message("❌ Sistema de tickets não configurado. Use `!setupticket` primeiro.", ephemeral=True)
+                return
+                
+            category = interaction.guild.get_channel(category_id)
+            
+            if not category:
+                await interaction.response.send_message("❌ Categoria de tickets não encontrada. Reconfigure com `!setupticket`.", ephemeral=True)
+                return
+
+            # Obter informações do tipo de suporte
+            support_info = SUPPORT_TYPES[self.support_type]
+            support_role = interaction.guild.get_role(support_info['role_id'])
+
+            # Nome único do ticket
+            ticket_name = f"ticket-{self.support_type}-{interaction.user.name.lower().replace(' ', '-')}"
+            
+            # Limitar o nome do canal
+            if len(ticket_name) > 100:
+                ticket_name = ticket_name[:97] + "..."
+            
+            overwrites = {
+                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+                interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True)
+            }
+            
+            if support_role:
+                overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True)
+
+            # Criar canal do ticket
             ticket_channel = await interaction.guild.create_text_channel(
                 name=ticket_name,
                 category=category,
@@ -480,10 +510,14 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
                 view=close_view
             )
             
-            await interaction.response.send_message(f"✅ Ticket criado: {ticket_channel.mention}", ephemeral=True)
+            await interaction.response.send_message(f"✅ Ticket criado com sucesso: {ticket_channel.mention}", ephemeral=True)
             
         except Exception as e:
-            await interaction.response.send_message(f"❌ Erro: {str(e)}", ephemeral=True)
+            print(f"❌ Erro ao criar ticket: {e}")
+            try:
+                await interaction.response.send_message(f"❌ Erro ao criar ticket: {str(e)}", ephemeral=True)
+            except:
+                pass
 
 class SupportTypeSelect(Select):
     def __init__(self):
@@ -503,9 +537,12 @@ class SupportTypeSelect(Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        support_type = self.values[0]
-        modal = TicketSupportModal(support_type)
-        await interaction.response.send_modal(modal)
+        try:
+            support_type = self.values[0]
+            modal = TicketSupportModal(support_type)
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            print(f"❌ Erro no SupportTypeSelect: {e}")
 
 class TicketSupportView(View):
     def __init__(self):
@@ -528,8 +565,8 @@ class TicketCloseView(View):
                     if embed.footer and "ID do usuário:" in embed.footer.text:
                         user_id = int(embed.footer.text.split("ID do usuário: ")[1])
                         break
-        except:
-            pass
+        except Exception as e:
+            print(f"⚠️ Erro ao buscar dono do ticket: {e}")
         
         # Verificar se o usuário tem permissão (dono do ticket, admin, ou qualquer cargo de suporte)
         has_permission = (
@@ -539,48 +576,64 @@ class TicketCloseView(View):
         )
         
         if not has_permission:
-            await interaction.response.send_message("❌ Sem permissão", ephemeral=True)
+            await interaction.response.send_message("❌ Você não tem permissão para fechar este ticket", ephemeral=True)
             return
             
         confirm_view = ConfirmCloseView()
-        await interaction.response.send_message("⚠️ Fechar ticket?", view=confirm_view, ephemeral=True)
+        await interaction.response.send_message("⚠️ Tem certeza que deseja fechar este ticket?", view=confirm_view, ephemeral=True)
 
 class ConfirmCloseView(View):
     def __init__(self):
         super().__init__(timeout=30)
         
-    @discord.ui.button(label="✅ Sim", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="✅ Sim, fechar", style=discord.ButtonStyle.danger)
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.send_message("🔒 Fechando em 3s...")
+            await interaction.response.send_message("🔒 Fechando ticket em 3 segundos...")
             await asyncio.sleep(3)
-            await interaction.channel.delete(reason="Ticket fechado")
-        except:
-            pass
+            await interaction.channel.delete(reason="Ticket fechado pelo usuário")
+        except Exception as e:
+            print(f"❌ Erro ao fechar ticket: {e}")
             
     @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
     async def cancel_close(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("✅ Cancelado", ephemeral=True)
+        await interaction.response.send_message("✅ Operação cancelada", ephemeral=True)
 
 # ===== SUGGESTION SYSTEM =====
 class SugestaoModal(Modal, title="Envie sua sugestão"):
-    mensagem = TextInput(label="Escreva aqui", style=TextStyle.paragraph)
+    mensagem = TextInput(label="Escreva sua sugestão", style=TextStyle.paragraph, placeholder="Digite sua sugestão aqui...")
 
     async def on_submit(self, interaction):
-        canal_id = sugestao_channels.get(str(interaction.guild.id))
-        canal = bot.get_channel(canal_id)
-        if canal:
-            embed = discord.Embed(title="📢 Sugestão Anônima", description=self.mensagem.value, color=discord.Color.orange())
+        try:
+            canal_id = sugestao_channels.get(str(interaction.guild.id))
+            canal = bot.get_channel(canal_id) if canal_id else None
+            
+            if not canal:
+                await interaction.response.send_message("❌ Canal de sugestões não configurado", ephemeral=True)
+                return
+                
+            embed = discord.Embed(title="💡 Nova Sugestão", description=self.mensagem.value, color=discord.Color.orange())
             embed.set_footer(text="Enviado anonimamente")
+            embed.timestamp = datetime.now()
+            
             await canal.send(embed=embed)
-        await interaction.response.send_message("✅ Enviado!", ephemeral=True)
+            await interaction.response.send_message("✅ Sugestão enviada com sucesso!", ephemeral=True)
+        except Exception as e:
+            print(f"❌ Erro na sugestão: {e}")
+            try:
+                await interaction.response.send_message("❌ Erro ao enviar sugestão", ephemeral=True)
+            except:
+                pass
 
 class SugestaoButton(Button):
     def __init__(self):
         super().__init__(label="Enviar sugestão", emoji="💡", style=discord.ButtonStyle.secondary, custom_id="sugestao_button")
 
     async def callback(self, interaction):
-        await interaction.response.send_modal(SugestaoModal())
+        try:
+            await interaction.response.send_modal(SugestaoModal())
+        except Exception as e:
+            print(f"❌ Erro no SugestaoButton: {e}")
 
 class SugestaoView(View):
     def __init__(self):
@@ -607,10 +660,12 @@ async def on_ready():
             # Carregar controle de mensagens de aniversário
             carregar_controle_mensagens()
             
-            # Iniciar task de aniversários
+            # CORREÇÃO: Forçar o início da task de aniversários
             if not verificar_aniversarios_task.is_running():
                 verificar_aniversarios_task.start()
-                print("🎂 Sistema de aniversários iniciado (verifica apenas às 7h)")
+                print("🎂 Sistema de aniversários ATIVADO e funcionando!")
+            else:
+                print("🎂 Sistema de aniversários já estava rodando")
                 
         except Exception as e:
             print(f"❌ Erro ao registrar views: {e}")
@@ -669,7 +724,7 @@ async def cargo(ctx):
             auto_roles[str(ctx.guild.id)] = role_id
             salvar_dados()
             role = ctx.guild.get_role(role_id)
-            await interaction.response.send_message(f"✅ Cargo configurado: **{role.name}**", ephemeral=True)
+            await interaction.response.send_message(f"✅ Cargo automático configurado: **{role.name}**", ephemeral=True)
 
     view = View()
     view.add_item(RoleSelect())
@@ -694,11 +749,11 @@ async def setcargo(ctx):
             mention_roles[str(ctx.guild.id)] = role_id
             salvar_dados()
             role = ctx.guild.get_role(role_id)
-            await interaction.response.send_message(f"📌 Cargo mencionado: **{role.name}**", ephemeral=True)
+            await interaction.response.send_message(f"📌 Cargo para mencionar configurado: **{role.name}**", ephemeral=True)
 
     view = View()
     view.add_item(MentionRoleSelect())
-    await ctx.send("🔣 Selecione o cargo para mencionar:", view=view)
+    await ctx.send("🔣 Selecione o cargo para mencionar nos tickets:", view=view)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -712,18 +767,32 @@ async def ticket(ctx):
 
     class ChannelSelect(Select):
         def __init__(self):
-            super().__init__(placeholder="Canal para tickets", options=options)
+            super().__init__(placeholder="Canal para receber tickets", options=options)
 
         async def callback(self, interaction: discord.Interaction):
             channel_id = int(self.values[0])
             ticket_response_channels[str(ctx.guild.id)] = channel_id
             salvar_dados()
-            await interaction.response.send_message(f"✅ Canal configurado: <#{channel_id}>", ephemeral=True)
-            await ctx.send("📉 Solicite seu cargo:", view=TicketButtonView())
+            await interaction.response.send_message(f"✅ Canal de tickets configurado: <#{channel_id}>", ephemeral=True)
+            
+            # Enviar o painel de solicitação de cargo
+            embed = discord.Embed(
+                title="📋 Solicitar Cargo",
+                description="**Clique no botão abaixo para solicitar um cargo no servidor!**\n\n"
+                          "📝 **Como funciona:**\n"
+                          "• Clique em 'Solicitar cargo'\n"
+                          "• Preencha o formulário\n"
+                          "• Aguarde a aprovação da equipe\n\n"
+                          "⚠️ **Importante:** Use apenas para solicitações reais de cargo.",
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text="Sistema de solicitação de cargos")
+            
+            await ctx.send(embed=embed, view=TicketButtonView())
 
     view = View()
     view.add_item(ChannelSelect())
-    await ctx.send("📌 Escolha o canal:", view=view)
+    await ctx.send("📌 Escolha o canal para receber os tickets:", view=view)
 
 # ===== COMANDO DE DEBUG =====
 @bot.command()
@@ -781,7 +850,7 @@ async def aniversario(ctx):
 
     view = View()
     view.add_item(AniversarioChannelSelect())
-    await ctx.send("🎉 Escolha o canal para aniversários:", view=view)
+    await ctx.send("🎉 Escolha o canal para mensagens de aniversário:", view=view)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -812,6 +881,19 @@ async def testaraniversario(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def forceaniversario(ctx):
+    """Força a verificação de aniversários AGORA (sem restrição de horário)."""
+    await ctx.send("🔄 Forçando verificação de aniversários...")
+    
+    try:
+        # Executar a função diretamente
+        await verificar_aniversarios_task()
+        await ctx.send("✅ Verificação de aniversários executada!")
+    except Exception as e:
+        await ctx.send(f"❌ Erro: {e}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def debuganiversarios(ctx):
     """Debug detalhado dos aniversários."""
     aniversarios = carregar_aniversarios()
@@ -827,52 +909,42 @@ async def debuganiversarios(ctx):
     embed.add_field(name="📅 Data de hoje", value=f"{hoje.strftime('%d/%m/%Y')} (dia {hoje.day}, mês {hoje.month})", inline=False)
     embed.add_field(name="📊 Total carregado", value=f"{len(aniversarios)} pessoas", inline=True)
     
-    # Verificar aniversários de junho
-    junho_count = 0
-    aniversariantes_junho = []
+    # Status da task
+    task_status = "✅ Rodando" if verificar_aniversarios_task.is_running() else "❌ Parada"
+    embed.add_field(name="🔄 Task Status", value=task_status, inline=True)
+    
+    # Canal configurado
+    guild_id = str(ctx.guild.id)
+    canal_config = aniversario_channels.get(guild_id)
+    if canal_config:
+        embed.add_field(name="📺 Canal", value=f"<#{canal_config}>", inline=True)
+    else:
+        embed.add_field(name="📺 Canal", value="❌ Não configurado", inline=True)
+    
+    # Verificar aniversários de hoje
     hoje_count = 0
+    aniversariantes_hoje = []
     
     for user_id, dados in aniversarios.items():
         try:
-            # Debug da data
-            data_str = dados["data_nascimento"]
-            data_nascimento = datetime.strptime(data_str, "%Y-%m-%d").date()
+            data_nascimento = datetime.strptime(dados["data_nascimento"], "%Y-%m-%d").date()
             
-            # Verificar se é junho
-            if data_nascimento.month == 6:
-                junho_count += 1
+            if data_nascimento.day == hoje.day and data_nascimento.month == hoje.month:
+                hoje_count += 1
                 member = ctx.guild.get_member(int(user_id))
-                status = "✅" if member else "❌"
-                aniversariantes_junho.append(f"**{data_nascimento.day}/06** - {dados['nome'][:15]}... {status}")
+                status = "✅ No servidor" if member else "❌ Não está no servidor"
+                aniversariantes_hoje.append(f"**{dados['nome']}** - {status}")
                 
-                # Verificar se é hoje
-                if data_nascimento.day == hoje.day and data_nascimento.month == hoje.month:
-                    hoje_count += 1
-                    
         except Exception as e:
             embed.add_field(name=f"❌ Erro em {user_id}", value=f"Data: {dados.get('data_nascimento', 'N/A')}\nErro: {str(e)[:50]}", inline=True)
     
-    embed.add_field(name="🎂 Aniversários em Junho", value=f"{junho_count} pessoas", inline=True)
-    embed.add_field(name="🎉 Aniversários HOJE", value=f"{hoje_count} pessoas", inline=True)
+    embed.add_field(name="🎉 Aniversários HOJE", value=f"{hoje_count} pessoas", inline=False)
     
-    # Mostrar alguns aniversários de junho
-    if aniversariantes_junho:
-        lista_junho = "\n".join(aniversariantes_junho[:10])  # Máximo 10
-        if len(aniversariantes_junho) > 10:
-            lista_junho += f"\n... e mais {len(aniversariantes_junho) - 10}"
-        embed.add_field(name="📋 Aniversários de Junho", value=lista_junho, inline=False)
-    
-    # Mostrar 3 exemplos de datas do JSON para debug
-    exemplos = []
-    for i, (user_id, dados) in enumerate(list(aniversarios.items())[:3]):
-        try:
-            data_str = dados["data_nascimento"]
-            data_obj = datetime.strptime(data_str, "%Y-%m-%d").date()
-            exemplos.append(f"`{data_str}` → Dia {data_obj.day}, Mês {data_obj.month}")
-        except:
-            exemplos.append(f"`{dados.get('data_nascimento', 'N/A')}` → ERRO")
-    
-    embed.add_field(name="🔍 Exemplos de datas", value="\n".join(exemplos), inline=False)
+    if aniversariantes_hoje:
+        lista_hoje = "\n".join(aniversariantes_hoje[:5])  # Máximo 5
+        if len(aniversariantes_hoje) > 5:
+            lista_hoje += f"\n... e mais {len(aniversariantes_hoje) - 5}"
+        embed.add_field(name="📋 Aniversariantes de hoje", value=lista_hoje, inline=False)
     
     await ctx.send(embed=embed)
 
@@ -1027,7 +1099,7 @@ async def ticketpanel(ctx):
     guild_id = str(ctx.guild.id)
     
     if guild_id not in ticket_categories:
-        await ctx.send("❌ Use `!setupticket` primeiro")
+        await ctx.send("❌ Use `!setupticket` primeiro para configurar o sistema")
         return
         
     embed = discord.Embed(
@@ -1065,11 +1137,25 @@ async def reclamacao(ctx):
             sugestao_channels[str(ctx.guild.id)] = canal_id
             salvar_dados()
             await interaction.response.send_message("✅ Canal configurado!", ephemeral=True)
-            await ctx.send("**📜 Envie sugestões anonimamente:**", view=SugestaoView())
+            
+            # Enviar painel de sugestões
+            embed = discord.Embed(
+                title="💡 Sistema de Sugestões",
+                description="**Tem uma sugestão para melhorar o servidor?**\n\n"
+                          "📝 **Como funciona:**\n"
+                          "• Clique em 'Enviar sugestão'\n"
+                          "• Escreva sua ideia\n"
+                          "• Sua sugestão será enviada anonimamente\n\n"
+                          "💭 **Seja construtivo e respeitoso!**",
+                color=discord.Color.orange()
+            )
+            embed.set_footer(text="Sistema de sugestões anônimas")
+            
+            await ctx.send(embed=embed, view=SugestaoView())
 
     view = View()
     view.add_item(CanalSelect())
-    await ctx.send("🔹 Escolha o canal:", view=view)
+    await ctx.send("🔹 Escolha o canal para receber sugestões:", view=view)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -1114,21 +1200,37 @@ async def status(ctx):
 
 @bot.command(name="ajuda")
 async def ajuda(ctx):
-    embed = discord.Embed(title="📖 Comandos", color=discord.Color.green())
-    embed.add_field(name="!cargo", value="Cargo automático", inline=False)
-    embed.add_field(name="!ticket", value="Sistema de pedidos", inline=False)
-    embed.add_field(name="!setcargo", value="Cargo para mencionar", inline=False)
-    embed.add_field(name="!setupticket", value="Configurar tickets", inline=False)
-    embed.add_field(name="!ticketpanel", value="Painel de tickets", inline=False)
-    embed.add_field(name="!reclamacao", value="Sugestões anônimas", inline=False)
-    embed.add_field(name="!aniversario", value="🎂 Configurar aniversários", inline=False)
-    embed.add_field(name="!listaraniversarios", value="🎉 Ver aniversários do mês", inline=False)
-    embed.add_field(name="!testaraniversario", value="🧪 Testar sistema (Admin)", inline=False)
-    embed.add_field(name="!debuganiversarios", value="🔍 Debug detalhado (Admin)", inline=False)
-    embed.add_field(name="!carregarjson", value="📁 Carregar JSON (Admin)", inline=False)
-    embed.add_field(name="!clear", value="Limpar canal", inline=False)
-    embed.add_field(name="!ping", value="Testar bot", inline=False)
-    embed.add_field(name="!status", value="Status do bot", inline=False)
+    embed = discord.Embed(title="📖 Comandos do Bot", color=discord.Color.green())
+    
+    # Comandos de configuração
+    embed.add_field(name="**⚙️ Configuração**", value="""
+`!cargo` - Configurar cargo automático
+`!setcargo` - Cargo para mencionar em tickets
+`!ticket` - Sistema de solicitação de cargos
+`!setupticket` - Configurar sistema de suporte
+`!ticketpanel` - Criar painel de tickets
+`!reclamacao` - Sistema de sugestões
+`!aniversario` - Configurar canal de aniversários
+""", inline=False)
+    
+    # Comandos de aniversário
+    embed.add_field(name="**🎂 Aniversários**", value="""
+`!listaraniversarios` - Ver aniversários do mês
+`!testaraniversario` - Testar sistema (Admin)
+`!forceaniversario` - Forçar verificação (Admin)
+`!debuganiversarios` - Debug detalhado (Admin)
+`!carregarjson` - Recarregar dados (Admin)
+""", inline=False)
+    
+    # Comandos utilitários
+    embed.add_field(name="**🔧 Utilitários**", value="""
+`!clear` - Limpar canal
+`!ping` - Testar latência
+`!status` - Status do bot
+`!debugjson` - Debug arquivo JSON (Admin)
+""", inline=False)
+    
+    embed.set_footer(text="Use !comando para executar • (Admin) = Apenas administradores")
     
     await ctx.send(embed=embed)
 
@@ -1136,11 +1238,12 @@ async def ajuda(ctx):
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Sem permissão para este comando")
+        await ctx.send("❌ Você não tem permissão para usar este comando")
     elif isinstance(error, commands.CommandNotFound):
-        pass
+        pass  # Ignorar comandos não encontrados
     else:
-        print(f"Erro: {error}")
+        print(f"❌ Erro no comando: {error}")
+        await ctx.send("❌ Ocorreu um erro interno. Tente novamente.")
 
 # ===== CLEANUP ON EXIT =====
 def cleanup_on_exit():
