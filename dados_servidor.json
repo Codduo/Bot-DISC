@@ -1,1 +1,18 @@
-{"auto_roles": {"1359193389022707823": 1361380508269023414}, "ticket_response_channels": {"1359193389022707823": 1362023193300176996}, "mention_roles": {"1359193389022707823": 1360210969447366697}, "sugestao_channels": {"1359193389022707823": 1360248423366000670}, "test_channels": {}}
+{
+    "auto_roles": {
+        "1359193389022707823": 1361380508269023414
+    },
+    "ticket_response_channels": {
+        "1359193389022707823": 1362023193300176996
+    },
+    "mention_roles": {
+        "1359193389022707823": 1360210969447366697
+    },
+    "sugestao_channels": {
+        "1359193389022707823": 1360248423366000670
+    },
+    "ticket_categories": {},
+    "ticket_support_roles": {},
+    "aniversario_channels": {},
+    "ticket_logs_channels": {}
+}

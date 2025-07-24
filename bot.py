@@ -67,6 +67,7 @@ ticket_categories = {}
 ticket_support_roles = {}
 aniversario_channels = {}  # Canais para enviar mensagens de aniversário
 mensagens_enviadas_hoje = {}  # Controle de mensagens já enviadas
+ticket_logs_channels = {}  # Canais para logs de tickets fechados - por tipo
 
 # Flag para controlar views
 views_registered = False
@@ -236,9 +237,19 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
                 inline=True
             )
         
-        # Adicionar foto se disponível
-        if aniversariante["link_foto"] and aniversariante["link_foto"] != "https://drive.google.com/exemplo":
-            embed.set_image(url=aniversariante["link_foto"])
+        # Adicionar foto se disponível (local)
+        foto_path = f"ani_colaboradores/{aniversariante['nome'].replace(' ', '_')}.png"
+        if os.path.exists(foto_path):
+            try:
+                file = discord.File(foto_path, filename=f"{aniversariante['nome']}_aniversario.png")
+                embed.set_image(url=f"attachment://{aniversariante['nome']}_aniversario.png")
+                # Será enviado junto com o embed
+            except Exception as e:
+                print(f"⚠️ Erro ao carregar foto de {aniversariante['nome']}: {e}")
+                file = None
+        else:
+            print(f"⚠️ Foto não encontrada: {foto_path}")
+            file = None
         
         embed.set_footer(text=f"Desejamos a você um feliz aniversário {aniversariante['nome']}!")
         embed.timestamp = datetime.now()
@@ -257,7 +268,11 @@ async def enviar_mensagem_aniversario(guild, aniversariante):
         if member:
             mensagem = f"{member.mention} {mensagem}"
         
-        await canal.send(content=mensagem, embed=embed)
+        # Enviar mensagem com ou sem arquivo de foto
+        if file:
+            await canal.send(content=mensagem, embed=embed, file=file)
+        else:
+            await canal.send(content=mensagem, embed=embed)
         
         # Marcar como enviado
         marcar_mensagem_enviada(aniversariante["user_id"])
@@ -338,6 +353,12 @@ SUPPORT_TYPES = {
         "emoji": "💼",
         "role_id": 1359504498048893070,
         "description": "Para questões gerenciais"
+    },
+    "compras": {
+        "name": "Compra de Produtos",
+        "emoji": "🛒",
+        "role_id": 1359504498048893070,  # Usando mesmo cargo da gerência por enquanto
+        "description": "Para solicitações de compra de produtos"
     }
 }
 
@@ -351,6 +372,7 @@ def salvar_dados():
         "ticket_categories": ticket_categories,
         "ticket_support_roles": ticket_support_roles,
         "aniversario_channels": aniversario_channels,
+        "ticket_logs_channels": ticket_logs_channels,
     }
     
     try:
@@ -372,6 +394,7 @@ def carregar_dados():
                 ticket_categories.update(dados.get("ticket_categories", {}))
                 ticket_support_roles.update(dados.get("ticket_support_roles", {}))
                 aniversario_channels.update(dados.get("aniversario_channels", {}))
+                ticket_logs_channels.update(dados.get("ticket_logs_channels", {}))
                 print("✅ Dados carregados com sucesso")
     except Exception as e:
         print(f"⚠️ Erro ao carregar dados: {e}")
@@ -442,6 +465,13 @@ class TicketSupportModal(Modal, title="Abrir Ticket de Suporte"):
         super().__init__()
         self.support_type = support_type
         self.title = f"Ticket - {SUPPORT_TYPES[support_type]['name']}"
+        
+        # Personalizar campos para compra de produtos
+        if support_type == "compras":
+            self.assunto.label = "Nome do Produto"
+            self.assunto.placeholder = "Digite o nome do produto que precisa ser comprado"
+            self.descricao.label = "Por que precisa ser comprado?"
+            self.descricao.placeholder = "Explique o motivo da compra e como será utilizado..."
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -589,11 +619,119 @@ class ConfirmCloseView(View):
     @discord.ui.button(label="✅ Sim, fechar", style=discord.ButtonStyle.danger)
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
         try:
+            # Capturar informações do ticket antes de fechar
+            ticket_info = await self.capturar_info_ticket(interaction)
+            
             await interaction.response.send_message("🔒 Fechando ticket em 3 segundos...")
+            
+            # Enviar log se as informações foram capturadas
+            if ticket_info:
+                await enviar_log_ticket(interaction.guild, ticket_info)
+            
             await asyncio.sleep(3)
             await interaction.channel.delete(reason="Ticket fechado pelo usuário")
         except Exception as e:
             print(f"❌ Erro ao fechar ticket: {e}")
+    
+    async def capturar_info_ticket(self, interaction):
+        """Captura informações do ticket para o log."""
+        try:
+            ticket_info = {
+                'channel_name': interaction.channel.name,
+                'closed_by': interaction.user.id,
+                'closed_by_name': interaction.user.display_name,
+                'user_id': None,
+                'user_name': 'Desconhecido',
+                'type': 'Desconhecido',
+                'emoji': '❓',
+                'subject': 'Não especificado',
+                'description': 'Não especificado',
+                'created_at': 'Desconhecido',
+                'duration': 'Desconhecido',
+                'support_type': 'geral',
+                'chat_history': ''
+            }
+            
+            # Capturar histórico de mensagens
+            chat_messages = []
+            async for message in interaction.channel.history(limit=1000, oldest_first=True):
+                # Pular mensagens do sistema e embeds
+                if message.author.bot and message.embeds:
+                    continue
+                    
+                timestamp = message.created_at.strftime("%d/%m/%Y %H:%M:%S")
+                author = message.author.display_name
+                content = message.content if message.content else "[Arquivo/Embed]"
+                
+                chat_messages.append(f"[{timestamp}] {author}: {content}")
+            
+            ticket_info['chat_history'] = "\n".join(chat_messages)
+            
+            # Buscar embed original do ticket
+            async for message in interaction.channel.history(limit=50, oldest_first=True):
+                if message.embeds and message.author == interaction.guild.me:
+                    embed = message.embeds[0]
+                    
+                    # Verificar se é o embed do ticket
+                    if "Ticket de" in embed.title or any("Suporte" in embed.title for _ in [embed.title]):
+                        # Extrair informações do embed
+                        for field in embed.fields:
+                            if field.name == "👤 Usuário":
+                                # Extrair user ID da mention
+                                import re
+                                user_match = re.search(r'<@(\d+)>', field.value)
+                                if user_match:
+                                    ticket_info['user_id'] = int(user_match.group(1))
+                                    user = interaction.guild.get_member(ticket_info['user_id'])
+                                    if user:
+                                        ticket_info['user_name'] = user.display_name
+                            elif field.name == "📝 Assunto" or field.name == "Nome do Produto":
+                                ticket_info['subject'] = field.value
+                            elif field.name == "📄 Descrição" or field.name == "Por que precisa ser comprado?":
+                                ticket_info['description'] = field.value
+                            elif field.name == "🏷️ Tipo":
+                                ticket_info['type'] = field.value
+                                # Extrair emoji e determinar tipo de suporte
+                                emoji_to_type = {
+                                    '🖥️': 'tecnico',
+                                    '📱': 'kommo', 
+                                    '👥': 'rh',
+                                    '💼': 'gerencia',
+                                    '🛒': 'compras'
+                                }
+                                
+                                for emoji, support_type in emoji_to_type.items():
+                                    if emoji in field.value:
+                                        ticket_info['emoji'] = emoji
+                                        ticket_info['support_type'] = support_type
+                                        break
+                        
+                        # Calcular duração
+                        if embed.timestamp:
+                            created_time = embed.timestamp
+                            now = datetime.now(created_time.tzinfo)
+                            duration = now - created_time
+                            
+                            days = duration.days
+                            hours, remainder = divmod(duration.seconds, 3600)
+                            minutes = remainder // 60
+                            
+                            if days > 0:
+                                ticket_info['duration'] = f"{days}d {hours}h {minutes}m"
+                            elif hours > 0:
+                                ticket_info['duration'] = f"{hours}h {minutes}m"
+                            else:
+                                ticket_info['duration'] = f"{minutes}m"
+                            
+                            ticket_info['created_at'] = created_time.strftime("%d/%m/%Y às %H:%M")
+                        
+                        break
+            
+            return ticket_info if ticket_info['user_id'] else None
+            
+        except Exception as e:
+            print(f"⚠️ Erro ao capturar info do ticket: {e}")
+            return None
             
     @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
     async def cancel_close(self, interaction: discord.Interaction, button: Button):
@@ -702,7 +840,71 @@ async def on_guild_remove(guild):
     ticket_categories.pop(guild_id, None)
     ticket_support_roles.pop(guild_id, None)
     aniversario_channels.pop(guild_id, None)
+    ticket_logs_channels.pop(guild_id, None)
     salvar_dados()
+
+# ===== TICKET LOG SYSTEM =====
+async def enviar_log_ticket(guild, ticket_info):
+    """Envia log do ticket fechado para o canal configurado do tipo específico."""
+    try:
+        guild_id = str(guild.id)
+        ticket_type = ticket_info.get('support_type', 'geral')
+        
+        # Buscar canal específico para este tipo de ticket
+        log_channels = ticket_logs_channels.get(guild_id, {})
+        log_channel_id = log_channels.get(ticket_type)
+        
+        if not log_channel_id:
+            print(f"⚠️ Canal de logs para {ticket_type} não configurado em {guild.name}")
+            return
+            
+        log_channel = guild.get_channel(log_channel_id)
+        if not log_channel:
+            print(f"⚠️ Canal de logs ID {log_channel_id} não encontrado em {guild.name}")
+            return
+        
+        # Criar embed do log
+        embed = discord.Embed(
+            title="🔒 Ticket Fechado",
+            color=discord.Color.red(),
+            timestamp=datetime.now()
+        )
+        
+        embed.add_field(name="👤 Usuário", value=f"<@{ticket_info['user_id']}>", inline=True)
+        embed.add_field(name="🏷️ Tipo", value=f"{ticket_info['emoji']} {ticket_info['type']}", inline=True)
+        embed.add_field(name="📅 Criado em", value=ticket_info['created_at'], inline=True)
+        embed.add_field(name="📝 Assunto", value=ticket_info['subject'], inline=False)
+        embed.add_field(name="📄 Descrição", value=ticket_info['description'][:1000] + ("..." if len(ticket_info['description']) > 1000 else ""), inline=False)
+        embed.add_field(name="🔒 Fechado por", value=f"<@{ticket_info['closed_by']}>", inline=True)
+        embed.add_field(name="⏱️ Duração", value=ticket_info['duration'], inline=True)
+        
+        embed.set_footer(text=f"Canal: {ticket_info['channel_name']} | ID: {ticket_info['user_id']}")
+        
+        # Enviar embed principal
+        await log_channel.send(embed=embed)
+        
+        # Enviar histórico do chat se disponível
+        if ticket_info.get('chat_history'):
+            # Criar arquivo de texto com o histórico
+            chat_content = f"=== HISTÓRICO DO TICKET {ticket_info['channel_name']} ===\n"
+            chat_content += f"Usuário: {ticket_info['user_name']}\n"
+            chat_content += f"Tipo: {ticket_info['type']}\n"
+            chat_content += f"Criado em: {ticket_info['created_at']}\n"
+            chat_content += f"Fechado por: {ticket_info['closed_by_name']}\n"
+            chat_content += f"Duração: {ticket_info['duration']}\n\n"
+            chat_content += "=== MENSAGENS ===\n\n"
+            chat_content += ticket_info['chat_history']
+            
+            # Enviar como arquivo
+            import io
+            file_content = io.BytesIO(chat_content.encode('utf-8'))
+            file = discord.File(file_content, filename=f"historico_{ticket_info['channel_name']}.txt")
+            await log_channel.send("📋 **Histórico completo do chat:**", file=file)
+        
+        print(f"✅ Log de ticket {ticket_type} enviado para {guild.name}")
+        
+    except Exception as e:
+        print(f"❌ Erro ao enviar log de ticket: {e}")
 
 # ===== COMMANDS =====
 @bot.command(aliases=["cargos"])
@@ -1109,7 +1311,8 @@ async def ticketpanel(ctx):
                    f"{SUPPORT_TYPES['tecnico']['emoji']} **{SUPPORT_TYPES['tecnico']['name']}** - {SUPPORT_TYPES['tecnico']['description']}\n"
                    f"{SUPPORT_TYPES['kommo']['emoji']} **{SUPPORT_TYPES['kommo']['name']}** - {SUPPORT_TYPES['kommo']['description']}\n"
                    f"{SUPPORT_TYPES['rh']['emoji']} **{SUPPORT_TYPES['rh']['name']}** - {SUPPORT_TYPES['rh']['description']}\n"
-                   f"{SUPPORT_TYPES['gerencia']['emoji']} **{SUPPORT_TYPES['gerencia']['name']}** - {SUPPORT_TYPES['gerencia']['description']}\n\n"
+                   f"{SUPPORT_TYPES['gerencia']['emoji']} **{SUPPORT_TYPES['gerencia']['name']}** - {SUPPORT_TYPES['gerencia']['description']}\n"
+                   f"{SUPPORT_TYPES['compras']['emoji']} **{SUPPORT_TYPES['compras']['name']}** - {SUPPORT_TYPES['compras']['description']}\n\n"
                    "✅ **Como funciona:**\n"
                    "• Selecione o tipo de suporte\n"
                    "• Preencha o formulário\n"
@@ -1121,6 +1324,79 @@ async def ticketpanel(ctx):
     embed.set_footer(text="Selecione o tipo de suporte no menu abaixo")
     
     await ctx.send(embed=embed, view=TicketSupportView())
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ticketlogs(ctx, tipo_ticket=None):
+    """Configura canais para logs de tickets fechados por tipo.
+    Uso: !ticketlogs [tipo]
+    Tipos: tecnico, kommo, rh, gerencia, compras
+    """
+    
+    if tipo_ticket and tipo_ticket not in SUPPORT_TYPES:
+        tipos_disponiveis = ", ".join(SUPPORT_TYPES.keys())
+        await ctx.send(f"❌ Tipo inválido. Tipos disponíveis: {tipos_disponiveis}")
+        return
+    
+    channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+    if not channels:
+        await ctx.send("❌ Nenhum canal disponível")
+        return
+
+    options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in channels[:25]]
+    
+    if tipo_ticket:
+        # Configurar canal específico para um tipo
+        support_info = SUPPORT_TYPES[tipo_ticket]
+        
+        class TicketLogChannelSelect(Select):
+            def __init__(self, ticket_type):
+                super().__init__(placeholder=f"Canal para logs de {support_info['name']}", options=options)
+                self.ticket_type = ticket_type
+
+            async def callback(self, interaction: discord.Interaction):
+                channel_id = int(self.values[0])
+                guild_id = str(ctx.guild.id)
+                
+                if guild_id not in ticket_logs_channels:
+                    ticket_logs_channels[guild_id] = {}
+                
+                ticket_logs_channels[guild_id][self.ticket_type] = channel_id
+                salvar_dados()
+                
+                await interaction.response.send_message(
+                    f"📊 Canal de logs para **{support_info['emoji']} {support_info['name']}** configurado: <#{channel_id}>", 
+                    ephemeral=True
+                )
+
+        view = View()
+        view.add_item(TicketLogChannelSelect(tipo_ticket))
+        await ctx.send(f"📊 Escolha o canal para logs de **{support_info['emoji']} {support_info['name']}**:", view=view)
+        
+    else:
+        # Mostrar menu de tipos disponíveis
+        embed = discord.Embed(
+            title="📊 Configurar Logs de Tickets",
+            description="**Escolha o tipo de ticket para configurar o canal de logs:**\n\n",
+            color=discord.Color.blue()
+        )
+        
+        for key, info in SUPPORT_TYPES.items():
+            guild_id = str(ctx.guild.id)
+            current_channel = "Não configurado"
+            
+            if guild_id in ticket_logs_channels and key in ticket_logs_channels[guild_id]:
+                channel_id = ticket_logs_channels[guild_id][key]
+                current_channel = f"<#{channel_id}>"
+            
+            embed.add_field(
+                name=f"{info['emoji']} {info['name']}", 
+                value=f"**Canal atual:** {current_channel}\n**Comando:** `!ticketlogs {key}`", 
+                inline=False
+            )
+        
+        embed.set_footer(text="Use: !ticketlogs [tipo] para configurar cada tipo individualmente")
+        await ctx.send(embed=embed)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -1209,6 +1485,7 @@ async def ajuda(ctx):
 `!ticket` - Sistema de solicitação de cargos
 `!setupticket` - Configurar sistema de suporte
 `!ticketpanel` - Criar painel de tickets
+`!ticketlogs [tipo]` - Configurar logs por tipo de ticket
 `!reclamacao` - Sistema de sugestões
 `!aniversario` - Configurar canal de aniversários
 """, inline=False)
