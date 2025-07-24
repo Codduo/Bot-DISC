@@ -562,8 +562,7 @@ class SupportTypeSelect(Select):
         
         super().__init__(
             placeholder="Selecione o tipo de suporte...",
-            options=options,
-            custom_id="support_type_select"
+            options=options
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -783,32 +782,30 @@ class SugestaoView(View):
 async def on_ready():
     global views_registered
     
-    if not views_registered:
-        print(f"✅ Bot conectado: {bot.user}")
-        print(f"🔧 Registrando views persistentes...")
+    print(f"✅ Bot conectado: {bot.user}")
+    print(f"🔧 Registrando views persistentes...")
+    
+    try:
+        # Sempre registrar views frescas para garantir atualizações
+        bot.add_view(TicketButtonView())
+        bot.add_view(SugestaoView())
+        bot.add_view(TicketSupportView())
+        bot.add_view(TicketCloseView())
+        views_registered = True
+        print("✅ Views registradas com sucesso")
         
-        try:
-            bot.add_view(TicketButtonView())
-            bot.add_view(SugestaoView())
-            bot.add_view(TicketSupportView())
-            bot.add_view(TicketCloseView())
-            views_registered = True
-            print("✅ Views registradas com sucesso")
+        # Carregar controle de mensagens de aniversário
+        carregar_controle_mensagens()
+        
+        # CORREÇÃO: Forçar o início da task de aniversários
+        if not verificar_aniversarios_task.is_running():
+            verificar_aniversarios_task.start()
+            print("🎂 Sistema de aniversários ATIVADO e funcionando!")
+        else:
+            print("🎂 Sistema de aniversários já estava rodando")
             
-            # Carregar controle de mensagens de aniversário
-            carregar_controle_mensagens()
-            
-            # CORREÇÃO: Forçar o início da task de aniversários
-            if not verificar_aniversarios_task.is_running():
-                verificar_aniversarios_task.start()
-                print("🎂 Sistema de aniversários ATIVADO e funcionando!")
-            else:
-                print("🎂 Sistema de aniversários já estava rodando")
-                
-        except Exception as e:
-            print(f"❌ Erro ao registrar views: {e}")
-    else:
-        print("ℹ️ Bot reconectado - Views já registradas")
+    except Exception as e:
+        print(f"❌ Erro ao registrar views: {e}")
 
 @bot.event
 async def on_member_join(member):
