@@ -357,7 +357,7 @@ SUPPORT_TYPES = {
     "compras": {
         "name": "Compra de Produtos",
         "emoji": "🛒",
-        "role_id": 1359504498048893070,  # Usando mesmo cargo da gerência por enquanto
+        "role_id": 1359505353653489694,  # Usando cargo do RH para compras
         "description": "Para solicitações de compra de produtos"
     }
 }
@@ -625,7 +625,10 @@ class ConfirmCloseView(View):
             
             # Enviar log se as informações foram capturadas
             if ticket_info:
+                print(f"📊 Enviando log para ticket tipo: {ticket_info.get('support_type', 'geral')}")
                 await enviar_log_ticket(interaction.guild, ticket_info)
+            else:
+                print("⚠️ Não foi possível capturar informações do ticket para log")
             
             await asyncio.sleep(3)
             await interaction.channel.delete(reason="Ticket fechado pelo usuário")
@@ -850,6 +853,10 @@ async def enviar_log_ticket(guild, ticket_info):
         # Buscar canal específico para este tipo de ticket
         log_channels = ticket_logs_channels.get(guild_id, {})
         log_channel_id = log_channels.get(ticket_type)
+        
+        print(f"🔍 Debug logs - Guild: {guild_id}, Tipo: {ticket_type}")
+        print(f"🔍 Canais configurados: {log_channels}")
+        print(f"🔍 Canal ID encontrado: {log_channel_id}")
         
         if not log_channel_id:
             print(f"⚠️ Canal de logs para {ticket_type} não configurado em {guild.name}")
@@ -1335,9 +1342,13 @@ async def ticketlogs(ctx, tipo_ticket=None):
         await ctx.send(f"❌ Tipo inválido. Tipos disponíveis: {tipos_disponiveis}")
         return
     
-    channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+    # Buscar canais com permissão mais ampla
+    channels = [c for c in ctx.guild.text_channels if 
+                c.permissions_for(ctx.guild.me).send_messages and 
+                c.permissions_for(ctx.guild.me).read_messages]
+    
     if not channels:
-        await ctx.send("❌ Nenhum canal disponível")
+        await ctx.send("❌ Nenhum canal disponível para o bot")
         return
 
     options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in channels[:25]]
