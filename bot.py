@@ -1513,11 +1513,90 @@ async def ajuda(ctx):
 `!ping` - Testar latência
 `!status` - Status do bot
 `!debugjson` - Debug arquivo JSON (Admin)
+`!enviarmsg` - Enviar mensagem em embed (Admin)
 """, inline=False)
     
     embed.set_footer(text="Use !comando para executar • (Admin) = Apenas administradores")
     
     await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def enviarmsg(ctx):
+    """Enviar mensagem customizada em embed para um canal."""
+    # Selecionar canal
+    channels = [c for c in ctx.guild.text_channels if c.permissions_for(ctx.guild.me).send_messages]
+    if not channels:
+        await ctx.send("❌ Nenhum canal disponível")
+        return
+
+    options = [SelectOption(label=c.name[:100], value=str(c.id)) for c in channels[:25]]
+
+    class ChannelMsgSelect(Select):
+        def __init__(self):
+            super().__init__(placeholder="Escolha o canal para enviar a mensagem", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            channel_id = int(self.values[0])
+            channel = ctx.guild.get_channel(channel_id)
+            
+            # Modal para escrever a mensagem
+            class MensagemModal(Modal, title="Criar Mensagem"):
+                titulo = TextInput(label="Título", placeholder="Título do embed (opcional)", style=TextStyle.short, required=False)
+                mensagem = TextInput(label="Mensagem", placeholder="Digite a mensagem aqui...", style=TextStyle.paragraph)
+                cor = TextInput(label="Cor", placeholder="blue, green, red, yellow, purple (opcional)", style=TextStyle.short, required=False, default="blue")
+
+                async def on_submit(self, modal_interaction):
+                    try:
+                        # Definir cor
+                        cores = {
+                            "blue": discord.Color.blue(),
+                            "green": discord.Color.green(), 
+                            "red": discord.Color.red(),
+                            "yellow": discord.Color.yellow(),
+                            "purple": discord.Color.purple(),
+                            "orange": discord.Color.orange(),
+                            "gold": discord.Color.gold()
+                        }
+                        
+                        cor_escolhida = cores.get(self.cor.value.lower(), discord.Color.blue())
+                        
+                        # Criar embed
+                        if self.titulo.value:
+                            embed = discord.Embed(
+                                title=self.titulo.value,
+                                description=self.mensagem.value,
+                                color=cor_escolhida,
+                                timestamp=datetime.now()
+                            )
+                        else:
+                            embed = discord.Embed(
+                                description=self.mensagem.value,
+                                color=cor_escolhida,
+                                timestamp=datetime.now()
+                            )
+                        
+                        embed.set_footer(text=f"Enviado por {ctx.author.display_name}")
+                        
+                        # Enviar para o canal escolhido
+                        await channel.send(embed=embed)
+                        
+                        await modal_interaction.response.send_message(
+                            f"✅ Mensagem enviada para {channel.mention}!", 
+                            ephemeral=True
+                        )
+                        
+                    except Exception as e:
+                        await modal_interaction.response.send_message(
+                            f"❌ Erro ao enviar mensagem: {e}", 
+                            ephemeral=True
+                        )
+
+            await interaction.response.send_modal(MensagemModal())
+
+    view = View()
+    view.add_item(ChannelMsgSelect())
+    await ctx.send("📝 Escolha o canal para enviar sua mensagem:", view=view)
 
 # ===== ERROR HANDLING =====
 @bot.event
