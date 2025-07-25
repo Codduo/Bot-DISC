@@ -675,7 +675,7 @@ class ConfirmCloseView(View):
                     embed = message.embeds[0]
                     
                     # Verificar se é o embed do ticket
-                    if "Ticket" in embed.title and ("de" in embed.title or "Suporte" in embed.title or "Compra" in embed.title):
+                    if "Ticket" in embed.title and ("-" in embed.title or "de" in embed.title):
                         # Extrair informações do embed
                         for field in embed.fields:
                             if field.name == "👤 Usuário":
